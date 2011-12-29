@@ -57,7 +57,7 @@ public class StatsHTable implements HTableInterface {
     public StatsHTable(String metricsScope, HTable normalHTable) {
         this.metricsScope = metricsScope;
         this.normalHTable = normalHTable;
-        RemoveOldRegionTimers.startIfNot();
+//        RemoveOldRegionTimers.startIfNot(); // TODO the purging code has a bug where it does spurious purges
     }
 
     private <T> T timedExecute(OpType opType, byte[] key, Callable<T> callable) throws Exception {

@@ -50,6 +50,8 @@ public class RemoveOldRegionTimers {
                             continue;
                         }
                         
+                        // TODO the fifteen minute rate seems to be zero when it shouldn't be, which
+                        // is causing regions to be purged incorrectly
                         if(timerMetric.fifteenMinuteRate() == 0D) {
                             log.warn("Purging region timer for " + metricName + " due to inactivity");
                             Metrics.defaultRegistry().removeMetric(metricName);
