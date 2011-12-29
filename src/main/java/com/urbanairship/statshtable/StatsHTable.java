@@ -52,12 +52,24 @@ public class StatsHTable implements HTableInterface {
     private final HTable normalHTable;
     private final String metricsScope;
 
+    // A JMX gauge that gives a list of regions in descending order of mean latency
+    @SuppressWarnings("unused")
+    private final GaugeMetric<String> regionsByLatency;
+    
+    // A JMX gauge that gives a list of servers in descending order of mean latency
+    @SuppressWarnings("unused")
+    private final GaugeMetric<String> serversByLatency;
+    
     private final ObjectMapper objectMapper = new ObjectMapper();
     
-    public StatsHTable(String metricsScope, HTable normalHTable) {
+    public StatsHTable(final String metricsScope, HTable normalHTable) {
         this.metricsScope = metricsScope;
         this.normalHTable = normalHTable;
 //        RemoveOldRegionTimers.startIfNot(); // TODO the purging code has a bug where it does spurious purges
+        this.regionsByLatency = Metrics.newGauge(StatsHTable.class, "regionsByLatency", metricsScope,
+                new RegionMetricGauge());
+        this.serversByLatency = Metrics.newGauge(StatsHTable.class, "serversByLatency", metricsScope,
+                new ServerLatencyGauge());
     }
 
     private <T> T timedExecute(OpType opType, byte[] key, Callable<T> callable) throws Exception {
@@ -453,51 +465,10 @@ public class StatsHTable implements HTableInterface {
     // TODO come up with a generic way to expose "the worst N somethings according to measurement Y"
     //      instead of the following atrocious copypasta.
     
-    // A JMX gauge that gives a list of regions in descending order of mean latency
-    @SuppressWarnings("unused")
-    private final GaugeMetric<String> regionsByLatency = Metrics.newGauge(StatsHTable.class, "regionsByLatency",
-            new GaugeMetric<String>() {
-                @Override
-                public String value() {
-                    Map<MetricName,Metric> metricsMap = Metrics.defaultRegistry().allMetrics();
-                    NavigableMap<Double,String> regionsByLatency = new TreeMap<Double,String>();
-                    
-                    for(Entry<MetricName,Metric> e: metricsMap.entrySet()) {
-                        MetricName metricName = e.getKey();
-                        Metric metric = e.getValue();
-                        
-                        if(metricName.getScope().equals(metricsScope) && 
-                                metricName.getName().startsWith(REGION_TIMER_PREFIX) &&
-                                metric instanceof TimerMetric) {
-                            TimerMetric timerMetric = (TimerMetric)metric;
-                            String regionName = metricName.getName().substring(REGION_TIMER_PREFIX.length());
-                            regionsByLatency.put(timerMetric.mean(), regionName);
-                        }
-                    }
-
-                    
-                    Map<String,Double> jsonMap = new LinkedHashMap<String,Double>();
-                    
-                    for(Entry<Double,String> e: regionsByLatency.descendingMap().entrySet()) {
-                       jsonMap.put(e.getValue(), e.getKey());
-                    }
-                    
-                    ByteArrayOutputStream bos = new ByteArrayOutputStream(jsonMap.size() * 50 + 5);
-                    try {
-                        objectMapper.writeValue(bos, jsonMap);
-                    } catch (Exception e) {
-                        throw new RuntimeException(e);
-                    }
-                    return new String(bos.toByteArray());
-                }
-        });
-    
-    // A JMX gauge that gives a list of servers in descending order of mean latency
-    @SuppressWarnings("unused")
-    private final GaugeMetric<String> serversByLatency = Metrics.newGauge(StatsHTable.class, "serversByLatency",
-        new GaugeMetric<String>() {
-            @Override
-            public String value() {
+    private class ServerLatencyGauge implements GaugeMetric<String> {
+        @Override
+        public String value() {
+            try {
                 Map<MetricName,Metric> metricsMap = Metrics.defaultRegistry().allMetrics();
                 NavigableMap<Double,String> serversByLatency = new TreeMap<Double,String>();
                 
@@ -513,7 +484,6 @@ public class StatsHTable implements HTableInterface {
                         serversByLatency.put(timerMetric.mean(), regionName);
                     }
                 }
-
                 
                 Map<String,Double> jsonMap = new LinkedHashMap<String,Double>();
                 
@@ -522,12 +492,49 @@ public class StatsHTable implements HTableInterface {
                 }
                 
                 ByteArrayOutputStream bos = new ByteArrayOutputStream(jsonMap.size() * 50 + 5);
-                try {
-                    objectMapper.writeValue(bos, jsonMap);
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                }
+                objectMapper.writeValue(bos, jsonMap);
                 return new String(bos.toByteArray());
+            } catch (Exception e) {
+                log.warn("Exception getting servers by latency", e);
+                throw new RuntimeException(e);
             }
-        });
+        }
+    }
+    
+    private class RegionMetricGauge implements GaugeMetric<String> {
+        @Override
+        public String value() {
+            try {
+                Map<MetricName,Metric> metricsMap = Metrics.defaultRegistry().allMetrics();
+                NavigableMap<Double,String> regionsByLatency = new TreeMap<Double,String>();
+                
+                for(Entry<MetricName,Metric> e: metricsMap.entrySet()) {
+                    MetricName metricName = e.getKey();
+                    Metric metric = e.getValue();
+                    
+                    if(metricName.getScope().equals(metricsScope) && 
+                            metricName.getName().startsWith(REGION_TIMER_PREFIX) &&
+                            metric instanceof TimerMetric) {
+                        TimerMetric timerMetric = (TimerMetric)metric;
+                        String regionName = metricName.getName().substring(REGION_TIMER_PREFIX.length());
+                        regionsByLatency.put(timerMetric.mean(), regionName);
+                    }
+                }
+    
+                
+                Map<String,Double> jsonMap = new LinkedHashMap<String,Double>();
+                
+                for(Entry<Double,String> e: regionsByLatency.descendingMap().entrySet()) {
+                   jsonMap.put(e.getValue(), e.getKey());
+                }
+                
+                ByteArrayOutputStream bos = new ByteArrayOutputStream(jsonMap.size() * 50 + 5);
+                objectMapper.writeValue(bos, jsonMap);
+                return new String(bos.toByteArray());
+            } catch (Exception e) {
+                log.error("Exception getting regions by latency", e);
+                throw new RuntimeException(e);
+            }
+        }
+    }
 }
