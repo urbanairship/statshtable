@@ -102,12 +102,7 @@
       <artifactId>hbase</artifactId>
       <version>0.90.4</version>
     </dependency>
-     <dependency>
-      <groupId>org.apache.hbase</groupId>
-      <artifactId>hbase-tests</artifactId>
-      <version>0.90.4</version>
-    </dependency>
-    <dependency>
+   <dependency>
       <groupId>joda-time</groupId>
       <artifactId>joda-time</artifactId>
       <version>1.6.2</version>
@@ -120,6 +115,19 @@
 
     <!-- Test Deps -->
     <dependency>
+      <groupId>org.apache.hbase</groupId>
+      <artifactId>hbase-tests</artifactId>
+      <version>0.90.4</version>
+      <scope>test</scope>
+    </dependency>
+   <!-- Needed for HBase minicluster testing, for MiniDFSCluster -->
+   <dependency>
+      <groupId>org.apache.hadoop</groupId>
+      <artifactId>hadoop-test</artifactId>
+      <version>0.20.2</version>
+      <scope>test</scope>
+    </dependency> 
+     <dependency>
       <groupId>junit</groupId>
       <artifactId>junit</artifactId>
       <version>4.5</version>
