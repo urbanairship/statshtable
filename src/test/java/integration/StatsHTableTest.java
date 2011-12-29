@@ -17,6 +17,8 @@ import com.urbanairship.statshtable.StatsHTable;
 import com.urbanairship.statshtable.StatsHTableFactory.OpType;
 import com.urbanairship.statshtable.StatsHTablePool;
 import com.yammer.metrics.Metrics;
+import com.yammer.metrics.core.GaugeMetric;
+import com.yammer.metrics.core.Metric;
 import com.yammer.metrics.core.MetricName;
 import com.yammer.metrics.core.TimerMetric;
 public class StatsHTableTest {
@@ -61,5 +63,11 @@ public class StatsHTableTest {
         
         Assert.assertTrue(getsTimer.count() != 0L);
         Assert.assertTrue(putsTimer.count() != 0L);
+        
+        for(Metric metric: Metrics.defaultRegistry().allMetrics().values()) {
+            if(metric instanceof GaugeMetric) {
+                ((GaugeMetric)metric).value(); // make sure gauges don't throw NullPointerException like that one time
+            }
+        }
     }
 }

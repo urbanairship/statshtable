@@ -45,29 +45,32 @@ import com.yammer.metrics.core.TimerMetric;
  */
 public class StatsHTable implements HTableInterface {
     private static final Logger log = LogManager.getLogger(StatsHTable.class);
-    
+
     static final String REGION_TIMER_PREFIX = "region:";
     static final String SERVER_TIMER_PREFIX = "server:";
-    
+
     private final HTable normalHTable;
     private final String metricsScope;
 
-    // A JMX gauge that gives a list of regions in descending order of mean latency
+    // A JMX gauge that gives a list of regions in descending order of mean
+    // latency
     @SuppressWarnings("unused")
     private final GaugeMetric<String> regionsByLatency;
-    
-    // A JMX gauge that gives a list of servers in descending order of mean latency
+
+    // A JMX gauge that gives a list of servers in descending order of mean
+    // latency
     @SuppressWarnings("unused")
     private final GaugeMetric<String> serversByLatency;
-    
+
     private final ObjectMapper objectMapper = new ObjectMapper();
-    
+
     public StatsHTable(final String metricsScope, HTable normalHTable) {
         this.metricsScope = metricsScope;
         this.normalHTable = normalHTable;
-//        RemoveOldRegionTimers.startIfNot(); // TODO the purging code has a bug where it does spurious purges
+        // RemoveOldRegionTimers.startIfNot(); // TODO the purging code has a
+        // bug where it does spurious purges
         this.regionsByLatency = Metrics.newGauge(StatsHTable.class, "regionsByLatency", metricsScope,
-                new RegionMetricGauge());
+                new RegionLatencyGauge());
         this.serversByLatency = Metrics.newGauge(StatsHTable.class, "serversByLatency", metricsScope,
                 new ServerLatencyGauge());
     }
@@ -75,69 +78,73 @@ public class StatsHTable implements HTableInterface {
     private <T> T timedExecute(OpType opType, byte[] key, Callable<T> callable) throws Exception {
         return timedExecute(ImmutableList.of(opType), ImmutableList.of(key), callable);
     }
-    
+
     /**
-     * Runs the callable and records its latency. 
+     * Runs the callable and records its latency.
      * 
-     * The latency will be recorded for every OpType given under timerLabels, which allows to identify
-     * slow operations like GET or PUT. 
+     * The latency will be recorded for every OpType given under timerLabels,
+     * which allows to identify slow operations like GET or PUT.
      * 
-     * The latency will also be recorded for every region that one of the "keys" belongs to, which lets
-     * us identify slow regions.
+     * The latency will also be recorded for every region that one of the "keys"
+     * belongs to, which lets us identify slow regions.
      * 
-     * The latency will also be recorded for every server touched by an operation, which lets us identify
-     * slow servers.
+     * The latency will also be recorded for every server touched by an
+     * operation, which lets us identify slow servers.
      * 
-     * @param timerLabels the latency of the callable will be used to update each of the timers
+     * @param timerLabels
+     *            the latency of the callable will be used to update each of the
+     *            timers
      * @param callable
-     * @param keys 
+     * @param keys
      * @return the return value of the callable
-     * @throws Exception if and only if the callable throws, the exception will bubble up
+     * @throws Exception
+     *             if and only if the callable throws, the exception will bubble
+     *             up
      */
-    private <T> T timedExecute(List<OpType> opTypes, List<byte[]> keys, Callable<T> callable)  
-            throws Exception {
+    private <T> T timedExecute(List<OpType> opTypes, List<byte[]> keys, Callable<T> callable) throws Exception {
         long beforeMs = System.currentTimeMillis();
         T result = callable.call();
         long durationMs = System.currentTimeMillis() - beforeMs;
-        
+
         try {
-            for(OpType opType: opTypes) {
-                TimerMetric timer = Metrics.newTimer(StatsHTable.class, opType.toString(), 
-                            metricsScope, TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
+            for (OpType opType : opTypes) {
+                TimerMetric timer = Metrics.newTimer(StatsHTable.class, opType.toString(), metricsScope,
+                        TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
                 timer.update(durationMs, TimeUnit.MILLISECONDS);
             }
-            
+
             Set<String> regionNames = new HashSet<String>();
             Set<String> serverNames = new HashSet<String>();
-            
-            // Make sets of regions and servers that we'll record the latency for
-            for(byte[] key: keys) {
+
+            // Make sets of regions and servers that we'll record the latency
+            // for
+            for (byte[] key : keys) {
                 HRegionLocation hRegionLocation = normalHTable.getRegionLocation(key);
                 regionNames.add(hRegionLocation.getRegionInfo().getRegionNameAsString());
                 serverNames.add(hRegionLocation.getServerAddress().getHostname());
             }
 
             // Track latencies by region, there may be hot regions that are slow
-            for(String regionName: regionNames) {
-                TimerMetric regionTimer = Metrics.newTimer(StatsHTableFactory.class, 
-                        REGION_TIMER_PREFIX + regionName, metricsScope, TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
+            for (String regionName : regionNames) {
+                TimerMetric regionTimer = Metrics.newTimer(StatsHTableFactory.class, REGION_TIMER_PREFIX + regionName,
+                        metricsScope, TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
                 regionTimer.update(durationMs, TimeUnit.MILLISECONDS);
             }
-            
+
             // Track latencies by region server, there may be slow servers
-            for(String serverName: serverNames) {
-                TimerMetric serverTimer = Metrics.newTimer(StatsHTableFactory.class, 
-                        SERVER_TIMER_PREFIX + serverName, metricsScope, TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
+            for (String serverName : serverNames) {
+                TimerMetric serverTimer = Metrics.newTimer(StatsHTableFactory.class, SERVER_TIMER_PREFIX + serverName,
+                        metricsScope, TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
                 serverTimer.update(durationMs, TimeUnit.MILLISECONDS);
             }
-            
+
         } catch (Exception e) {
             log.error("Couldn't update latency stats", e);
         }
-        
+
         return result;
     }
-    
+
     @Override
     public Result get(final Get get) throws IOException {
         try {
@@ -147,7 +154,7 @@ public class StatsHTable implements HTableInterface {
                 }
             });
         } catch (IOException e) {
-            throw (IOException)e;
+            throw (IOException) e;
         } catch (Exception e) {
             final String errMsg = "Unexpected exception in stats wrapper for get()";
             log.error(errMsg, e);
@@ -191,14 +198,15 @@ public class StatsHTable implements HTableInterface {
     public void batch(final List<Row> actions, final Object[] results) throws IOException, InterruptedException {
         try {
             List<byte[]> keys = new ArrayList<byte[]>(actions.size());
-            for(Row action: actions) {
+            for (Row action : actions) {
                 keys.add(action.getRow());
             }
             timedExecute(ImmutableList.of(OpType.BATCH), keys, new Callable<Object>() {
                 @Override
                 public Object call() throws IOException, InterruptedException {
                     normalHTable.batch(actions, results);
-                    return null;  // We're forced by Callable to return *something* 
+                    return null; // We're forced by Callable to return
+                                 // *something*
                 }
             });
         } catch (IOException e) {
@@ -216,7 +224,7 @@ public class StatsHTable implements HTableInterface {
     public Object[] batch(final List<Row> actions) throws IOException, InterruptedException {
         try {
             List<byte[]> keys = new ArrayList<byte[]>(actions.size());
-            for(Row action: actions) {
+            for (Row action : actions) {
                 keys.add(action.getRow());
             }
             return timedExecute(ImmutableList.of(OpType.BATCH), keys, new Callable<Object[]>() {
@@ -240,7 +248,7 @@ public class StatsHTable implements HTableInterface {
     public Result[] get(final List<Get> gets) throws IOException {
         try {
             List<byte[]> keys = new ArrayList<byte[]>(gets.size());
-            for(Get get: gets) {
+            for (Get get : gets) {
                 keys.add(get.getRow());
             }
             return timedExecute(ImmutableList.of(OpType.MULTIGET), keys, new Callable<Result[]>() {
@@ -281,7 +289,7 @@ public class StatsHTable implements HTableInterface {
         // TODO: return a wrapped ResultScanner that does latency measurements
         try {
             byte[] startRow = scan.getStartRow();
-            if(startRow == null) {
+            if (startRow == null) {
                 startRow = new byte[] {};
             }
             return timedExecute(OpType.GET_SCANNER, startRow, new Callable<ResultScanner>() {
@@ -312,13 +320,14 @@ public class StatsHTable implements HTableInterface {
     }
 
     @Override
-    public void put(final  Put put) throws IOException {
+    public void put(final Put put) throws IOException {
         try {
             timedExecute(OpType.PUT, put.getRow(), new Callable<Object>() {
                 @Override
                 public Object call() throws IOException {
                     normalHTable.put(put);
-                    return null; // We're required by Callable to return something
+                    return null; // We're required by Callable to return
+                                 // something
                 }
             });
         } catch (IOException e) {
@@ -327,7 +336,7 @@ public class StatsHTable implements HTableInterface {
             final String errMsg = "Unexpected exception in stats wrapper for put()";
             log.error(errMsg, e);
             throw new RuntimeException(errMsg, e);
-        }            
+        }
     }
 
     @Override
@@ -337,8 +346,8 @@ public class StatsHTable implements HTableInterface {
     }
 
     @Override
-    public boolean checkAndPut(final byte[] row, final byte[] family, final byte[] qualifier, final byte[] value, final Put put)
-            throws IOException {
+    public boolean checkAndPut(final byte[] row, final byte[] family, final byte[] qualifier, final byte[] value,
+            final Put put) throws IOException {
         try {
             return timedExecute(OpType.CHECK_AND_PUT, row, new Callable<Boolean>() {
                 @Override
@@ -352,7 +361,7 @@ public class StatsHTable implements HTableInterface {
             final String errMsg = "Unexpected exception in stats wrapper for checkAndPut()";
             log.error(errMsg, e);
             throw new RuntimeException(errMsg, e);
-        }   
+        }
     }
 
     @Override
@@ -362,7 +371,8 @@ public class StatsHTable implements HTableInterface {
                 @Override
                 public Object call() throws IOException {
                     normalHTable.delete(delete);
-                    return null; // We're required by Callable to return something
+                    return null; // We're required by Callable to return
+                                 // something
                 }
             });
         } catch (IOException e) {
@@ -381,8 +391,8 @@ public class StatsHTable implements HTableInterface {
     }
 
     @Override
-    public boolean checkAndDelete(final byte[] row, final byte[] family, final byte[] qualifier, final byte[] value, final Delete delete)
-            throws IOException {
+    public boolean checkAndDelete(final byte[] row, final byte[] family, final byte[] qualifier, final byte[] value,
+            final Delete delete) throws IOException {
         try {
             return timedExecute(OpType.CHECK_AND_DELETE, row, new Callable<Boolean>() {
                 @Override
@@ -457,40 +467,49 @@ public class StatsHTable implements HTableInterface {
         // This is not used in shennendoah, don't bother measuring
         normalHTable.unlockRow(rl);
     }
-    
+
     public HTableInterface unwrap() {
         return normalHTable;
     }
-    
-    // TODO come up with a generic way to expose "the worst N somethings according to measurement Y"
-    //      instead of the following atrocious copypasta.
-    
+
+    // TODO come up with a generic way to expose
+    // "the worst N somethings according to measurement Y"
+    // instead of the following atrocious copypasta.
+
     private class ServerLatencyGauge implements GaugeMetric<String> {
         @Override
         public String value() {
             try {
-                Map<MetricName,Metric> metricsMap = Metrics.defaultRegistry().allMetrics();
-                NavigableMap<Double,String> serversByLatency = new TreeMap<Double,String>();
-                
-                for(Entry<MetricName,Metric> e: metricsMap.entrySet()) {
+                Map<MetricName, Metric> metricsMap = Metrics.defaultRegistry().allMetrics();
+                NavigableMap<Double, String> serversByLatency = new TreeMap<Double, String>();
+
+                for (Entry<MetricName, Metric> e : metricsMap.entrySet()) {
                     MetricName metricName = e.getKey();
                     Metric metric = e.getValue();
-                    
-                    if(metricName.getScope().equals(metricsScope) && 
-                            metricName.getName().startsWith(SERVER_TIMER_PREFIX) &&
+
+                    boolean scopesEqual;
+                    if (metricName.getScope() == null && metricsScope == null) {
+                        scopesEqual = true;
+                    } else if (metricName.getScope().equals(metricsScope)) {
+                        scopesEqual = true;
+                    } else {
+                        scopesEqual = false;
+                    }
+
+                    if (scopesEqual && metricName.getName().startsWith(SERVER_TIMER_PREFIX) &&
                             metric instanceof TimerMetric) {
-                        TimerMetric timerMetric = (TimerMetric)metric;
-                        String regionName = metricName.getName().substring(SERVER_TIMER_PREFIX.length());
-                        serversByLatency.put(timerMetric.mean(), regionName);
+                        TimerMetric timerMetric = (TimerMetric) metric;
+                        String serverName = metricName.getName().substring(SERVER_TIMER_PREFIX.length());
+                        serversByLatency.put(timerMetric.mean(), serverName);
                     }
                 }
-                
-                Map<String,Double> jsonMap = new LinkedHashMap<String,Double>();
-                
-                for(Entry<Double,String> e: serversByLatency.descendingMap().entrySet()) {
-                   jsonMap.put(e.getValue(), e.getKey());
+
+                Map<String, Double> jsonMap = new LinkedHashMap<String, Double>();
+
+                for (Entry<Double, String> e : serversByLatency.descendingMap().entrySet()) {
+                    jsonMap.put(e.getValue(), e.getKey());
                 }
-                
+
                 ByteArrayOutputStream bos = new ByteArrayOutputStream(jsonMap.size() * 50 + 5);
                 objectMapper.writeValue(bos, jsonMap);
                 return new String(bos.toByteArray());
@@ -500,34 +519,41 @@ public class StatsHTable implements HTableInterface {
             }
         }
     }
-    
-    private class RegionMetricGauge implements GaugeMetric<String> {
+
+    private class RegionLatencyGauge implements GaugeMetric<String> {
         @Override
         public String value() {
             try {
-                Map<MetricName,Metric> metricsMap = Metrics.defaultRegistry().allMetrics();
-                NavigableMap<Double,String> regionsByLatency = new TreeMap<Double,String>();
-                
-                for(Entry<MetricName,Metric> e: metricsMap.entrySet()) {
+                Map<MetricName, Metric> metricsMap = Metrics.defaultRegistry().allMetrics();
+                NavigableMap<Double, String> regionsByLatency = new TreeMap<Double, String>();
+
+                for (Entry<MetricName, Metric> e : metricsMap.entrySet()) {
                     MetricName metricName = e.getKey();
                     Metric metric = e.getValue();
-                    
-                    if(metricName.getScope().equals(metricsScope) && 
-                            metricName.getName().startsWith(REGION_TIMER_PREFIX) &&
+
+                    boolean scopesEqual;
+                    if (metricName.getScope() == null && metricsScope == null) {
+                        scopesEqual = true;
+                    } else if (metricName.getScope().equals(metricsScope)) {
+                        scopesEqual = true;
+                    } else {
+                        scopesEqual = false;
+                    }
+
+                    if (scopesEqual && metricName.getName().startsWith(REGION_TIMER_PREFIX) &&
                             metric instanceof TimerMetric) {
-                        TimerMetric timerMetric = (TimerMetric)metric;
+                        TimerMetric timerMetric = (TimerMetric) metric;
                         String regionName = metricName.getName().substring(REGION_TIMER_PREFIX.length());
                         regionsByLatency.put(timerMetric.mean(), regionName);
                     }
                 }
-    
-                
-                Map<String,Double> jsonMap = new LinkedHashMap<String,Double>();
-                
-                for(Entry<Double,String> e: regionsByLatency.descendingMap().entrySet()) {
-                   jsonMap.put(e.getValue(), e.getKey());
+
+                Map<String, Double> jsonMap = new LinkedHashMap<String, Double>();
+
+                for (Entry<Double, String> e : regionsByLatency.descendingMap().entrySet()) {
+                    jsonMap.put(e.getValue(), e.getKey());
                 }
-                
+
                 ByteArrayOutputStream bos = new ByteArrayOutputStream(jsonMap.size() * 50 + 5);
                 objectMapper.writeValue(bos, jsonMap);
                 return new String(bos.toByteArray());
