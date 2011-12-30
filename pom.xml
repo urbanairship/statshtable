@@ -4,7 +4,7 @@
 
   <groupId>com.urbanairship</groupId>
   <artifactId>statshtable</artifactId>
-  <version>1.0.3</version>
+  <version>1.0.4</version>
 
   <name>statshtable</name>
   <url>http://urbanairship.com</url>
@@ -34,7 +34,7 @@
           </execution>
         </executions>
       </plugin>
-      <plugin>
+      <!-- <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-shade-plugin</artifactId>
         <version>1.4</version>
@@ -46,12 +46,10 @@
             </goals>
           </execution>
         </executions>
-      </plugin>
-
-
-
-</plugins>
+      </plugin> -->
+    </plugins>
   </build>
+  
   <repositories>
     <repository>
       <id>thirdparty</id>
