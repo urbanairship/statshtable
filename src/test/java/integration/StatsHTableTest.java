@@ -14,13 +14,8 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import com.urbanairship.statshtable.StatsHTable;
-import com.urbanairship.statshtable.StatsHTableFactory.OpType;
 import com.urbanairship.statshtable.StatsHTablePool;
-import com.yammer.metrics.Metrics;
-import com.yammer.metrics.core.GaugeMetric;
-import com.yammer.metrics.core.Metric;
-import com.yammer.metrics.core.MetricName;
-import com.yammer.metrics.core.TimerMetric;
+
 public class StatsHTableTest {
     private static final HBaseTestingUtility TEST_UTIL = new HBaseTestingUtility();
     
@@ -55,19 +50,5 @@ public class StatsHTableTest {
         // Make sure the Put made it into the DB and the Get got it back
         Assert.assertNotNull(result);
         Assert.assertArrayEquals(uuid, result.getColumnLatest(cf, uuid).getValue());
-
-        MetricName getsMetricsName = new MetricName(StatsHTable.class, OpType.GET.toString(), scope);
-        MetricName putsMetricsName = new MetricName(StatsHTable.class, OpType.PUT.toString(), scope);
-        TimerMetric getsTimer = (TimerMetric) Metrics.defaultRegistry().allMetrics().get(getsMetricsName);
-        TimerMetric putsTimer = (TimerMetric) Metrics.defaultRegistry().allMetrics().get(putsMetricsName);
-        
-        Assert.assertTrue(getsTimer.count() != 0L);
-        Assert.assertTrue(putsTimer.count() != 0L);
-        
-        for(Metric metric: Metrics.defaultRegistry().allMetrics().values()) {
-            if(metric instanceof GaugeMetric) {
-                ((GaugeMetric)metric).value(); // make sure gauges don't throw NullPointerException like that one time
-            }
-        }
     }
 }

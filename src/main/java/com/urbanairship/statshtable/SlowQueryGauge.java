@@ -1,6 +1,5 @@
 package com.urbanairship.statshtable;
 
-import java.io.ByteArrayOutputStream;
 import java.util.NavigableMap;
 import java.util.TreeMap;
 
@@ -11,20 +10,23 @@ import org.codehaus.jackson.map.ObjectMapper;
 import com.yammer.metrics.core.GaugeMetric;
 
 /**
- * 
+ * Gives a JMX gauge that returns stack traces of the slowest N queries as JSON.
  */
-public class SlowestQueryGauge implements GaugeMetric<String> {
-    private static final Logger log = LogManager.getLogger(SlowestQueryGauge.class);
+public class SlowQueryGauge implements GaugeMetric<String> {
+    private static final Logger log = LogManager.getLogger(SlowQueryGauge.class);
     
-    NavigableMap<Long,String> slowQueries = new TreeMap<Long,String>();
-    private ObjectMapper mapper;
+    NavigableMap<Long,StackTraceElement[]> slowQueries = new TreeMap<Long,StackTraceElement[]>();
+    private static ObjectMapper mapper = new ObjectMapper();
     private int howMany;
     
-    public SlowestQueryGauge(int howMany) {
+    public SlowQueryGauge(int howMany) {
+        if(howMany < 1) {
+            throw new IllegalArgumentException("howMany must be >= 1");
+        }
         this.howMany = howMany;
     }
     
-    synchronized public void update(long latencyMs, String label) {
+    synchronized public void maybeUpdate(long latencyMs) {
         boolean shouldSave = false;
         
         if(slowQueries.size() < howMany) {
@@ -38,7 +40,7 @@ public class SlowestQueryGauge implements GaugeMetric<String> {
         }
         
         if(shouldSave) {
-            slowQueries.put(latencyMs, label);
+            slowQueries.put(latencyMs, Thread.currentThread().getStackTrace());
             if(slowQueries.size() > howMany) {
                 slowQueries.remove(slowQueries.firstKey());
             }
@@ -47,12 +49,10 @@ public class SlowestQueryGauge implements GaugeMetric<String> {
 
     @Override
     public String value() {
-        ByteArrayOutputStream bos = new ByteArrayOutputStream(slowQueries.size() * 100 + 5);
         try {
             synchronized (this) {
-                mapper.writeValue(bos, slowQueries);
+                return mapper.writeValueAsString(slowQueries.descendingMap());
             }
-            return bos.toString();
         } catch (Exception e) {
             log.warn("Exception making JSON for slow queries", e);
             return "exception";

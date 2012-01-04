@@ -1,0 +1,22 @@
+<assembly xmlns="http://maven.apache.org/plugins/maven-assembly-plugin/assembly/1.1.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/plugins/maven-assembly-plugin/assembly/1.1.0 http://maven.apache.org/xsd/assembly-1.1.0.xsd">
+  <id>deps</id>
+  <formats>
+    <format>zip</format>
+  </formats>
+  <dependencySets>
+    <dependencySet>
+      <outputDirectory>/</outputDirectory>
+      <excludes>
+        <exclude>*:servlet-api*</exclude>
+        <exclude>ant:*</exclude>
+        <exclude>org.eclipse.jdt:*</exclude>
+        <exclude>*:org.apache.log4j.lf5.*:*</exclude>
+        <exclude>*:jsp*:*</exclude>
+        <exclude>junit:junit</exclude>
+        <exclude>org.apache.maven:lib:tests</exclude>
+      </excludes>
+    </dependencySet>
+  </dependencySets>
+</assembly>
