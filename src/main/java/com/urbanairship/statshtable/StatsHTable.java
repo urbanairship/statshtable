@@ -1,28 +1,22 @@
 package com.urbanairship.statshtable;
 
 import java.io.IOException;
-import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.NavigableMap;
 import java.util.Set;
-import java.util.TreeMap;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import javax.management.JMException;
-import javax.management.MBeanServer;
-import javax.management.ObjectName;
-
+import org.apache.commons.collections.comparators.ReverseComparator;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.HTableDescriptor;
@@ -37,48 +31,60 @@ import org.apache.hadoop.hbase.client.ResultScanner;
 import org.apache.hadoop.hbase.client.Row;
 import org.apache.hadoop.hbase.client.RowLock;
 import org.apache.hadoop.hbase.client.Scan;
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
 import org.codehaus.jackson.map.ObjectMapper;
 
 import com.google.common.collect.ImmutableList;
-import com.urbanairship.statshtable.StatsHTableFactory.OpType;
+import com.google.common.collect.SortedSetMultimap;
+import com.google.common.collect.TreeMultimap;
+import com.yammer.metrics.Metrics;
 import com.yammer.metrics.core.GaugeMetric;
+import com.yammer.metrics.core.Metric;
+import com.yammer.metrics.core.MetricName;
 import com.yammer.metrics.reporting.JmxReporter;
 
 /**
  * Wraps an HTable and exposes latency metrics by region/server/operation.
+ * 
+ * The idea is that HBase clients would use a StatsHTable/StatsHTablePool/StatsHTableFactory in any place where 
+ * they would ordinarily use an HTable/HTablePool/HTableFactory. Then, behind the scenes, request latencies are 
+ * measured and the stats exposed via JMX. The only change to the client is to use the StatsXXXX classes.
+ * 
+ * HTables are not thread-safe, so this class is also not thread-safe.
  */
 public class StatsHTable implements HTableInterface {
-    private static final Logger log = LogManager.getLogger(StatsHTable.class);
+    private static final Log log = LogFactory.getLog(StatsHTable.class);
 
-    private static final int TIMER_TICK_EXECUTOR_THREADS = 20;
-    
-    private final static ObjectMapper objectMapper = new ObjectMapper();
-    
-    static final String REGION_TIMER_PREFIX = "region_";
-    static final String SERVER_TIMER_PREFIX = "server_";
+    public static final int NUM_SLOW_QUERIES = 50; 
 
-    // Contain TimerMetrics for individual regions and servers. These are global singletons.
-    private static AtomicRegistry<String,String,SHTimerMetric> regionTimers = RegionTimers.getInstance();
-    private static AtomicRegistry<String,String,SHTimerMetric> serverTimers = ServerTimers.getInstance();
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+    
+    private static final Object jmxSetupLock = new Object();
+    private static boolean jmxSetupDone = false;
+    
+    // These contain TimerMetrics for individual regions and servers. These are global singletons.
+    private static StatsTimerRegistry regionTimers = RegionTimers.getInstance();
+    private static StatsTimerRegistry serverTimers = ServerTimers.getInstance();
     
     // Contains TimerMetrics by operation type (e.g. put, get)
-    private static AtomicRegistry<String,OpType,SHTimerMetric> opTypeTimers = new AtomicRegistry<String,OpType,SHTimerMetric>();
-    
-    // JMX gauges that give a list of the regions/servers in descending order of latency
-    private static ConcurrentMap<String,GaugeMetric<String>> serverGauges = new ConcurrentHashMap<String,GaugeMetric<String>>(); 
-    private static ConcurrentMap<String,GaugeMetric<String>> regionGauges = new ConcurrentHashMap<String,GaugeMetric<String>>(); 
-
-    // JMX gauge that shows the slowest queries by latency, with stack trace
-    private static ConcurrentMap<String,SlowQueryGauge> slowQueryGauges = new ConcurrentHashMap<String,SlowQueryGauge>(); 
-
-    // Executor shared by TimerMetrics, we don't want them to each create their own thread pool 
-    private static final ScheduledExecutorService tickExecutor = Executors.newScheduledThreadPool(TIMER_TICK_EXECUTOR_THREADS);
+    private static StatsTimerRegistry opTypeTimers = new StatsTimerRegistry("_opTypes");
     
     private final HTable normalHTable;
     private final String metricsScope;
     private final SlowQueryGauge slowQueryGauge;
+
+    static Comparator<Double> doubleComparator = new Comparator<Double> () {
+        @Override
+        public int compare(Double d1, Double d2) {
+            return d1.compareTo(d2);
+        }
+    };
+    
+    static Comparator<String> stringComparator = new Comparator<String> () {
+        @Override
+        public int compare(String s1, String s2) {
+            return s1.compareTo(s2);
+        }
+    };
     
     /**
      * @param metricsScope all StatsHTables with the same scope update the same underlying stats. The JMX
@@ -97,50 +103,21 @@ public class StatsHTable implements HTableInterface {
          * and a slow query gauge that gives the slowest queries and their stack traces. This code creates those 
          * gauges if they don't already exist.
          */
-        try {
-            if(!serverGauges.containsKey(metricsScope)) {
-                GaugeMetric<String> serverGauge = new GaugeForScope(serverTimers);
-                GaugeMetric<String> existingServerGauge = serverGauges.putIfAbsent(metricsScope, serverGauge);
-                if(existingServerGauge == null) {
-                    // We're the first to create the slow server gauge, it's our responsibility to register JMX
-                    ObjectName serversObjName = new ObjectName("com.urbanairship.statshtable:type=" + metricsScope + 
-                            ", name=" + "serversByLatency");
-                    MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
-                    JmxReporter.Gauge serversReporter = new JmxReporter.Gauge(serverGauge, serversObjName);
-                    mbs.registerMBean(serversReporter, serversObjName);
+        // Get or create these gauges. If we're the first StatsHTable for our metricsScope, will create and register.
+        Metrics.newGauge(newMetricName(metricsScope, "serversByLatency"), new GaugeForScope(serverTimers));
+        Metrics.newGauge(newMetricName(metricsScope, "regionsByLatency"), new GaugeForScope(regionTimers));
+        slowQueryGauge = (SlowQueryGauge)Metrics.newGauge(newMetricName(metricsScope, "slowQueries"), 
+                new SlowQueryGauge(NUM_SLOW_QUERIES));
+        
+        // The first StatsHTable will set up JMX reporting for region detail and server detail registries
+        if(!jmxSetupDone) {
+            synchronized (jmxSetupLock) {
+                if(!jmxSetupDone) {
+                    new JmxReporter(regionTimers).start();
+                    new JmxReporter(serverTimers).start();
+                    new JmxReporter(opTypeTimers).start();
                 }
             }
-            
-            if(!regionGauges.containsKey(metricsScope)) {
-                GaugeMetric<String> regionGauge = new GaugeForScope(regionTimers);
-                
-                GaugeMetric<String> existingRegionGauge = regionGauges.putIfAbsent(metricsScope, regionGauge);
-                if(existingRegionGauge == null) {
-                    // We're the first to create the slow regions gauge, it's our responsibility to register JMX
-                    ObjectName regionsObjName = new ObjectName("com.urbanairship.statshtable:type=" + metricsScope + 
-                            ", name=" + "regionsByLatency");
-                    MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
-                    JmxReporter.Gauge regionsReporter = new JmxReporter.Gauge(regionGauge, regionsObjName);
-                    mbs.registerMBean(regionsReporter, regionsObjName);
-                }
-            }
-            
-            if(!slowQueryGauges.containsKey(metricsScope)) {
-                SlowQueryGauge newSlowQueriesGauge = new SlowQueryGauge(50);
-                SlowQueryGauge existingGauge = slowQueryGauges.putIfAbsent(metricsScope, newSlowQueriesGauge);
-                if(existingGauge == null) {
-                    // We're the first to create the slow query gauge, it's our responsibility to register JMX
-                    ObjectName slowQueriesObjName = new ObjectName("com.urbanairship.statshtable:type=" + metricsScope + 
-                            ", name=" + "slowQueries");
-                    MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
-                    JmxReporter.Gauge regionsReporter = new JmxReporter.Gauge(newSlowQueriesGauge, slowQueriesObjName);
-                    mbs.registerMBean(regionsReporter, slowQueriesObjName);
-                }
-            }
-            slowQueryGauge = slowQueryGauges.get(metricsScope);
-        } catch (JMException e) {
-            log.error("JMX error prevented StatsHTable instantiation", e);
-            throw new RuntimeException(e);
         }
     }
     
@@ -180,10 +157,49 @@ public class StatsHTable implements HTableInterface {
         long beforeMs = System.currentTimeMillis();
         T result = callable.call();
         long durationMs = System.currentTimeMillis() - beforeMs;
+        updateStats(opTypes, keys, durationMs);
+        return result; 
+    }
 
+    /**
+     * Like {@link #timedExecute(List, List, Callable)} except it's used by iterator wrappers. When we're using 
+     * an iterator, we don't know which regions we touched until the iterator returns Results. Each result has
+     * a key, from which we can figure out the region that it came from.
+     */
+    private Result timedExecuteIterator(List<OpType> opTypes, Callable<Result> callable) throws Exception {
+        long beforeMs = System.currentTimeMillis();
+        Result result = callable.call();
+        long durationMs = System.currentTimeMillis() - beforeMs;
+        
+        List<byte[]> keys = new ArrayList<byte[]>(1);
+        keys.add(result.getRow());
+        updateStats(opTypes, keys, durationMs);
+        return result;
+    }
+    
+    /**
+     * Like {@link #timedExecute(List, List, Callable)} except it's used by iterator wrappers. When we're using 
+     * an iterator, we don't know which regions we touched until the iterator returns Results. Each result has
+     * a key, from which we can figure out the region that it came from.
+     */
+    private Result[] timedExecuteArrayIterator(List<OpType> opTypes, Callable<Result[]> callable) 
+            throws Exception {
+        long beforeMs = System.currentTimeMillis();
+        Result[] results = callable.call();
+        long durationMs = System.currentTimeMillis() - beforeMs;
+        
+        List<byte[]> keys = new ArrayList<byte[]>(results.length);
+        for(int i=0; i<results.length; i++) {
+            keys.add(results[i].getRow());
+        }
+        updateStats(opTypes, keys, durationMs);
+        return results;
+    }
+    
+    private void updateStats(List<OpType> opTypes, List<byte[]> keys, long durationMs) {
         try {
             for (OpType opType : opTypes) {
-                getOrRegisterOpTypeTimer(opType).update(durationMs, TimeUnit.MILLISECONDS);
+                opTypeTimers.newSHTimerMetric(metricsScope, opType.toString()).update(durationMs, TimeUnit.MILLISECONDS);
             }
 
             Set<String> regionNames = new HashSet<String>();
@@ -201,20 +217,20 @@ public class StatsHTable implements HTableInterface {
             }
 
             // Track latencies by region, there may be hot regions that are slow
+            String tableName = new String(normalHTable.getTableName());
             for (String regionName : regionNames) {
-                getOrRegisterRegionTimer(regionName).update(durationMs, TimeUnit.MILLISECONDS);
+                String metricName = tableName + "|" + regionName;
+                regionTimers.newSHTimerMetric(metricsScope, metricName).update(durationMs, TimeUnit.MILLISECONDS);
             }
 
             // Track latencies by region server, there may be slow servers
             for (String serverName : serverNames) {
-                getOrRegisterServerTimer(serverName).update(durationMs, TimeUnit.MILLISECONDS);
+                serverTimers.newSHTimerMetric(metricsScope, serverName).update(durationMs, TimeUnit.MILLISECONDS);
             }
 
         } catch (Exception e) {
             log.error("Couldn't update latency stats", e);
         }
-
-        return result;
     }
     
     @Override
@@ -358,7 +374,6 @@ public class StatsHTable implements HTableInterface {
 
     @Override
     public ResultScanner getScanner(final Scan scan) throws IOException {
-        // TODO: return a wrapped ResultScanner that does latency measurements
         try {
             byte[] startRow = scan.getStartRow();
             if (startRow == null) {
@@ -367,7 +382,7 @@ public class StatsHTable implements HTableInterface {
             return timedExecute(OpType.GET_SCANNER, startRow, new Callable<ResultScanner>() {
                 @Override
                 public ResultScanner call() throws IOException {
-                    return normalHTable.getScanner(scan);
+                    return new WrappedResultScanner(normalHTable.getScanner(scan));
                 }
             });
         } catch (IOException e) {
@@ -378,17 +393,172 @@ public class StatsHTable implements HTableInterface {
             throw new RuntimeException(errMsg, e);
         }
     }
+    
+    private class WrappedResultScanner implements ResultScanner {
+        private final ResultScanner normalResultScanner;
+        
+        public WrappedResultScanner(ResultScanner rs) {
+            this.normalResultScanner = rs;
+        }
+        
+        @Override
+        public Iterator<Result> iterator() { 
+            try {
+                return timedExecute(OpType.RESULTSCANNER_ITERATOR, null, new Callable<Iterator<Result>>() {
+                    @Override
+                    public Iterator<Result> call() {
+                        return new WrappedResultIterator(normalResultScanner.iterator());
+                    }
+                });
+            } catch (Exception e) {
+                final String errMsg = "Unexpected exception in stats wrapper for ResultScanner.iterator()";
+                log.error(errMsg, e);
+                throw new RuntimeException(errMsg, e);
+            }
+        }
 
-    @Override
-    public ResultScanner getScanner(byte[] family) throws IOException {
-        // This is not used in shennendoah, don't bother measuring
-        return normalHTable.getScanner(family);
+        @Override
+        public Result next() throws IOException {
+            try {
+                return timedExecuteIterator(ImmutableList.of(OpType.RESULTSCANNER_NEXT), new Callable<Result>() {
+                   @Override
+                   public Result call() throws IOException {
+                       return normalResultScanner.next();
+                   }
+                });
+            } catch (IOException e) {
+                throw e;
+            } catch (Exception e) {
+                final String errMsg = "Unexpected exception in stats wrapper for ResultScanner.next()";
+                log.error(errMsg, e);
+                throw new RuntimeException(errMsg, e);
+            }
+        }
+
+        @Override
+        public Result[] next(final int nbRows) throws IOException {
+            try {
+                return timedExecuteArrayIterator(ImmutableList.of(OpType.RESULTSCANNER_NEXTARRAY), 
+                        new Callable<Result[]>() {
+                    @Override
+                    public Result[] call() throws IOException {
+                        return normalResultScanner.next(nbRows);
+                    }
+                });
+            } catch (IOException e) {
+                throw e;
+            } catch (Exception e) {
+                final String errMsg = "Unexpected exception in stats wrapper for ResultScanner.next(int)";
+                log.error(errMsg, e);
+                throw new RuntimeException(errMsg, e);
+            }
+        }
+
+        @Override
+        public void close() {
+            try {
+                timedExecute(OpType.RESULTSCANNER_CLOSE, null, new Callable<Object>() {
+                    @Override
+                    public Object call() {
+                        normalResultScanner.close();
+                        return null; // Callable requires that we return something
+                    }
+                });
+            } catch (Exception e) {
+                final String errMsg = "Unexpected exception in stats wrapper for ResultScanner.close()";
+                log.error(errMsg, e);
+                throw new RuntimeException(errMsg, e);
+            }
+        }
+    }
+    
+    private class WrappedResultIterator implements Iterator<Result> {
+        private final Iterator<Result> normalIterator;
+        
+        public WrappedResultIterator(Iterator<Result> normalIterator) {
+            this.normalIterator = normalIterator;
+        }
+
+        @Override
+        public boolean hasNext() {
+            try {
+                return timedExecute(OpType.RESULTITERATOR_HASNEXT, null, new Callable<Boolean>() {
+                    @Override
+                    public Boolean call() {
+                        return normalIterator.hasNext();
+                    }
+                });
+            } catch (RuntimeException e) {
+                // Since the Iterator interface prevents checked exceptions from being thrown, HBase's
+                // Htable.ClientScanner throws IOExceptions wrapped in RuntimeException. This is a "normal"
+                // error in that it will happen if there are network errors or host failures, and does not
+                // indicate a problem in StatsHTable.
+                throw e;
+            } catch (Exception e) {
+                final String errMsg = "Unexpected exception in stats wrapper for ResultIterator.hasNext()";
+                log.error(errMsg, e);
+                throw new RuntimeException(errMsg, e);
+            }
+        }
+
+        @Override
+        public Result next() {
+            try {
+                return timedExecuteIterator(ImmutableList.of(OpType.RESULTITERATOR_NEXT), new Callable<Result>() {
+                    @Override
+                    public Result call() throws Exception {
+                        return normalIterator.next();
+                    }
+                });
+            } catch (RuntimeException e) {
+                throw e;
+            } catch (Exception e) {
+                final String errMsg = "Unexpected exception in stats wrapper for ResultIterator.next()";
+                log.error(errMsg, e);
+                throw new RuntimeException(errMsg, e);
+            }
+        }
+
+        @Override
+        public void remove() {
+            normalIterator.remove(); // I assume this just throws UnsupprtedOperationException
+        }
     }
 
     @Override
-    public ResultScanner getScanner(byte[] family, byte[] qualifier) throws IOException {
-        // This is not used in shennendoah, don't bother measuring
-        return normalHTable.getScanner(family, qualifier);
+    public ResultScanner getScanner(final byte[] family) throws IOException {
+        try {
+            return timedExecute(ImmutableList.of(OpType.GETSCANNER), null, new Callable<ResultScanner>() {
+                @Override
+                public ResultScanner call() throws IOException {
+                    return normalHTable.getScanner(family);                    
+                }
+            });
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            final String errMsg = "Unexpected exception in stats wrapper for getScanner(byte[])";
+            log.error(errMsg, e);
+            throw new RuntimeException(errMsg, e);
+        }
+    }
+
+    @Override
+    public ResultScanner getScanner(final byte[] family, final byte[] qualifier) throws IOException {
+        try {
+            return timedExecute(ImmutableList.of(OpType.GETSCANNER), null, new Callable<ResultScanner>() {
+                @Override
+                public ResultScanner call() throws IOException {
+                    return normalHTable.getScanner(family, qualifier);                    
+                }
+            });
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            final String errMsg = "Unexpected exception in stats wrapper for getScanner(byte[],byte[])";
+            log.error(errMsg, e);
+            throw new RuntimeException(errMsg, e);
+        }
     }
 
     @Override
@@ -651,14 +821,16 @@ public class StatsHTable implements HTableInterface {
     /**
      * Return an ordered Map where the order of entries is determined by the natural ordering of the value type.
      */
-    public static <K,V> Map<K,V> sortMapByValue(Map<K,V> in) {
-        NavigableMap<V,K> treeMap = new TreeMap<V,K>(); 
-        for(Map.Entry<K,V> e: in.entrySet()) {
+    public static Map<String,Double> sortMapReversedByValue(Map<String,Double> in) {
+        @SuppressWarnings("unchecked")
+        SortedSetMultimap<Double,String> treeMap = TreeMultimap.create(new ReverseComparator(doubleComparator), 
+                stringComparator); 
+        for(Map.Entry<String,Double> e: in.entrySet()) {
             treeMap.put(e.getValue(), e.getKey());
         }
         
-        Map<K,V> sorted = new LinkedHashMap<K,V>();
-        for(Map.Entry<V,K> e: treeMap.entrySet()) {
+        Map<String,Double> sorted = new LinkedHashMap<String,Double>();
+        for(Map.Entry<Double,String> e: treeMap.entries()) {
             sorted.put(e.getValue(), e.getKey());
         }
         return sorted;
@@ -667,21 +839,25 @@ public class StatsHTable implements HTableInterface {
     /**
      * Shared code for the gauges that show regions/servers in descending order of latency.
      */
-    private class GaugeForScope implements GaugeMetric<String> {
-        private final AtomicRegistry<String,String,SHTimerMetric> registry;
+    private class GaugeForScope extends GaugeMetric<String> {
+        private final StatsTimerRegistry registry;
         
-        public GaugeForScope(AtomicRegistry<String,String,SHTimerMetric> registry) {
+        public GaugeForScope(StatsTimerRegistry registry) {
             this.registry = registry;
         }
         
         @Override
         public String value() {
             Map<String,Double> meanLatencies = new HashMap<String,Double>();
-            for(Map.Entry<String,SHTimerMetric> e: registry.innerMap(metricsScope).entrySet()) {
-                meanLatencies.put(e.getKey(), e.getValue().mean());
+            for(Map.Entry<MetricName,Metric> e: registry.allMetrics().entrySet()) {
+                Metric metric = e.getValue();
+                if(metric instanceof SHTimerMetric) {
+                    SHTimerMetric timerMetric = (SHTimerMetric)metric;
+                    meanLatencies.put(e.getKey().getName(), timerMetric.mean());
+                }
             }
             try {
-                return objectMapper.writeValueAsString(sortMapByValue(meanLatencies));
+                return objectMapper.writeValueAsString(sortMapReversedByValue(meanLatencies));
             } catch (Exception e) {
                 log.error("JSON encoding problem", e);
                 return "exception, see logs";
@@ -689,51 +865,8 @@ public class StatsHTable implements HTableInterface {
         }
     }
     
-    /**
-     * Gets the SHTimerMetric that measures latency for the given region name, or creates it if it doesn't
-     * already exist. 
-     */
-    private SHTimerMetric getOrRegisterRegionTimer(final String regionName) throws Exception {
-        final String metricName = new String(normalHTable.getTableName()) + "|" + regionName;
-        Callable<SHTimerMetric> metricFactory = new SHTimerMetric.Factory(tickExecutor, metricsScope + "_regions", 
-                metricName);
-        return regionTimers.registerOrGet(metricsScope, metricName, metricFactory, jmxRegistrator); 
+    public static final MetricName newMetricName(String scope, String name) {
+        return new MetricName("com.urbanairship", "StatsHTable", name, scope);
     }
-    
-    /**
-     * Gets the SHTimerMetric that measures latency for the given server, or creates it if it doesn't
-     * already exist. 
-     */
-    private SHTimerMetric getOrRegisterServerTimer(final String serverName) throws Exception {
-        Callable<SHTimerMetric> metricFactory = new SHTimerMetric.Factory(tickExecutor, metricsScope + "_servers", 
-                serverName);
-        return serverTimers.registerOrGet(metricsScope, serverName, metricFactory, jmxRegistrator); 
-    }
-    
-    /**
-     * Gets the SHTimerMetric that measures latency for the operation type, or creates it if it doesn't
-     * already exist. 
-     */
-    private SHTimerMetric getOrRegisterOpTypeTimer(final OpType opType) throws Exception {
-        Callable<SHTimerMetric> metricFactory = new SHTimerMetric.Factory(tickExecutor, metricsScope, opType.toString());
-        return opTypeTimers.registerOrGet(metricsScope, opType, metricFactory, jmxRegistrator);
-    }
-    
-    /**
-     * Given a SHTimerMetric, this object will register it in JMX. This is passed to metrics factories to
-     * register new SHTimerMetrics.
-     */
-    private UnaryFunction<SHTimerMetric> jmxRegistrator = new UnaryFunction<SHTimerMetric>() {
-        @Override
-        public void apply(SHTimerMetric t) {
-            try {
-                MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
-                JmxReporter.Timer reporter = new JmxReporter.Timer(t, t.getJmxName());
-                mbs.registerMBean(reporter, t.getJmxName());
-            } 
-            catch (JMException e) {
-                log.error(e);
-            }
-        }
-    };
 }
+

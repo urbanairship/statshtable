@@ -1,16 +1,16 @@
 package com.urbanairship.statshtable;
 
-import java.lang.management.ManagementFactory;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
-import javax.management.JMException;
-import javax.management.MBeanServer;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
+import com.yammer.metrics.core.Metric;
+import com.yammer.metrics.core.MetricName;
+import com.yammer.metrics.core.MetricsRegistry;
 
 /**
  * Since we track latency by HBase region, after a region or server disappears we want to stop tracking it. 
@@ -18,18 +18,19 @@ import org.apache.log4j.Logger;
  * runs periodically to remove TimerMetrics that haven't been touched in a while. 
  */
 public class RemoveOldTimers {
-    private static final Logger log = LogManager.getLogger(RemoveOldTimers.class);
+    private static final Log log = LogFactory.getLog(RemoveOldTimers.class);
     
-    // Timers that go this long without updating are purged
-    private static final long EXPIRE_REGION_TIMERS_MS = TimeUnit.HOURS.toMillis(6); 
+    // Timers that go this long without updating are purged. Should be large to avoid purging timers for regions 
+    // that are accessed rarely.
+    private static final long EXPIRE_REGION_TIMERS_MS = TimeUnit.DAYS.toMillis(1); 
     
     // How often to check for stale timers
     private static final long CHECK_EVERY_MS = TimeUnit.MINUTES.toMillis(10);
     
     private static Object startupLock = new Object();
     private static boolean started = false;
-    private static Set<AtomicRegistry<String,String,SHTimerMetric>> atomicRegistries = 
-            new HashSet<AtomicRegistry<String,String,SHTimerMetric>>();
+    private static Set<MetricsRegistry> atomicRegistries = 
+            new HashSet<MetricsRegistry>();
 
     static {
         atomicRegistries.add(RegionTimers.getInstance());
@@ -42,7 +43,7 @@ public class RemoveOldTimers {
             try {
                 while(true) {
                     Thread.sleep(CHECK_EVERY_MS);
-                    for(AtomicRegistry<String,String,SHTimerMetric> registry: atomicRegistries) {
+                    for(MetricsRegistry registry: atomicRegistries) {
                         expireOldTimers(registry);
                     }
                 }
@@ -52,26 +53,16 @@ public class RemoveOldTimers {
         } 
     }
     
-    private static void expireOldTimers(AtomicRegistry<String,String,SHTimerMetric> registry) {
+    private static void expireOldTimers(MetricsRegistry registry) {
         long expireOlderThan = System.currentTimeMillis() - EXPIRE_REGION_TIMERS_MS;
-        for(String scope: registry.getScopes()) {
-            Map<String,SHTimerMetric> metricsForScope = registry.innerMap(scope);
-            if(metricsForScope == null) {
+        for(Map.Entry<MetricName,Metric> e: registry.allMetrics().entrySet()) {
+            if(!(e.getValue() instanceof SHTimerMetric)) {
                 continue;
             }
-            for(Map.Entry<String,SHTimerMetric> e: metricsForScope.entrySet()) {
-                SHTimerMetric metric = e.getValue();
-                if(metric.getLastUpdateMillis() < expireOlderThan) {
-                    String metricName = e.getKey();
-                    registry.remove(scope, metricName);
-                    
-                    MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
-                    try {
-                        mbs.unregisterMBean(metric.getJmxName());
-                    } catch (JMException ex) {
-                        log.error(ex);
-                    }
-                }
+            SHTimerMetric metric = (SHTimerMetric)e.getValue();
+            
+            if(metric.getLastUpdateMillis() < expireOlderThan) {
+                registry.removeMetric(e.getKey());
             }
         } 
     }

@@ -5,17 +5,8 @@ import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.HTableFactory;
 import org.apache.hadoop.hbase.client.HTableInterface;
 import org.apache.hadoop.hbase.client.HTableInterfaceFactory;
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
 
 public class StatsHTableFactory implements HTableInterfaceFactory {
-    public enum OpType {
-        GET, MULTIGET, GET_ROW_OR_BEFORE, PUT, BATCH, GET_SCANNER, NEXT, EXISTS, CHECK_AND_PUT, DELETE, 
-        INCREMENT, CHECK_AND_DELETE, MULTIPUT, MULTIDELETE, FLUSHCOMMITS, LOCKROW, UNLOCKROW
-    }
-    
-    private final static Logger log = LogManager.getLogger(StatsHTableFactory.class);
-    
     private final boolean useStats;
     private final String metricsScope;
     private final HTableInterfaceFactory normalHTableFactory = new HTableFactory();

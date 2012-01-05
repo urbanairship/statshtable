@@ -3,8 +3,8 @@ package com.urbanairship.statshtable;
 import java.util.NavigableMap;
 import java.util.TreeMap;
 
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.codehaus.jackson.map.ObjectMapper;
 
 import com.yammer.metrics.core.GaugeMetric;
@@ -12,8 +12,8 @@ import com.yammer.metrics.core.GaugeMetric;
 /**
  * Gives a JMX gauge that returns stack traces of the slowest N queries as JSON.
  */
-public class SlowQueryGauge implements GaugeMetric<String> {
-    private static final Logger log = LogManager.getLogger(SlowQueryGauge.class);
+public class SlowQueryGauge extends GaugeMetric<String> {
+    private static final Log log = LogFactory.getLog(SlowQueryGauge.class);
     
     NavigableMap<Long,StackTraceElement[]> slowQueries = new TreeMap<Long,StackTraceElement[]>();
     private static ObjectMapper mapper = new ObjectMapper();

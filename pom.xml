@@ -4,7 +4,7 @@
 
   <groupId>com.urbanairship</groupId>
   <artifactId>statshtable</artifactId>
-  <version>1.1.0</version>
+  <version>1.1.2</version>
 
   <name>statshtable</name>
   <url>http://urbanairship.com</url>
@@ -104,7 +104,7 @@
     <dependency>
       <groupId>com.yammer.metrics</groupId>
       <artifactId>metrics-core</artifactId>
-      <version>2.0.0-BETA16</version>
+      <version>2.0.0-BETA18</version>
     </dependency>
     <dependency>
       <groupId>org.apache.hbase</groupId>
@@ -124,7 +124,15 @@
     <dependency>
       <groupId>com.google.guava</groupId>
       <artifactId>guava</artifactId>
-      <version>r09</version>
+      <version>11.0</version>
+    </dependency>
+
+    <!-- After updating yammer metrics to 2.0.0-BETA18, this was necessary to keep SLF4j from crashing the tests -->
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+      <version>1.5.8</version>
+      <scope>test</scope>
     </dependency>
 
     <!-- Test Deps -->

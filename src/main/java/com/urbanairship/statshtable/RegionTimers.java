@@ -5,10 +5,10 @@ package com.urbanairship.statshtable;
  * This class provides access to that singleton and instantiates it the first time it is called.
  */
 public class RegionTimers {
-    private static AtomicRegistry<String,String,SHTimerMetric> instance = null;
+    private static StatsTimerRegistry instance = null;
     private static final Object initLock = new Object();
     
-    static AtomicRegistry<String,String,SHTimerMetric> getInstance() {
+    static StatsTimerRegistry getInstance() {
         if(instance != null) {
             return instance;
         }
@@ -16,7 +16,7 @@ public class RegionTimers {
             if(instance != null) {
                 return instance;
             }
-            instance = new AtomicRegistry<String,String,SHTimerMetric>();
+            instance = new StatsTimerRegistry("_regions");
             return instance;
         }
     }
