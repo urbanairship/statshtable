@@ -866,7 +866,7 @@ public class StatsHTable implements HTableInterface {
     }
     
     public static final MetricName newMetricName(String scope, String name) {
-        return new MetricName("com.urbanairship", "StatsHTable", name, scope);
+        return new MetricName("com.urbanairship.statshtable", "StatsHTable", name, scope);
     }
 }
 
