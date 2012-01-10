@@ -172,8 +172,13 @@ public class StatsHTable implements HTableInterface {
         long durationMs = System.currentTimeMillis() - beforeMs;
         
         List<byte[]> keys = new ArrayList<byte[]>(1);
-        keys.add(result.getRow());
-        updateStats(opTypes, keys, durationMs);
+        // If the iterator returned in less than one millisecond, we assume it's reading from a local cache
+        // and not doing an RPC. We don't update the stats in this case because they skew the results
+        // and make actual HBase problems harder to find.
+        if(durationMs > 0L) {
+            keys.add(result.getRow());
+            updateStats(opTypes, keys, durationMs);
+        }
         return result;
     }
     
@@ -188,11 +193,16 @@ public class StatsHTable implements HTableInterface {
         Result[] results = callable.call();
         long durationMs = System.currentTimeMillis() - beforeMs;
         
-        List<byte[]> keys = new ArrayList<byte[]>(results.length);
-        for(int i=0; i<results.length; i++) {
-            keys.add(results[i].getRow());
+        // If the iterator returned in less than one millisecond, we assume it's reading from a local cache
+        // and not doing an RPC. We don't update the stats in this case because they skew the results
+        // and make actual HBase problems harder to find.
+        if(durationMs > 0L) {
+            List<byte[]> keys = new ArrayList<byte[]>(results.length);
+            for(int i=0; i<results.length; i++) {
+                keys.add(results[i].getRow());
+            }
+            updateStats(opTypes, keys, durationMs);
         }
-        updateStats(opTypes, keys, durationMs);
         return results;
     }
     
