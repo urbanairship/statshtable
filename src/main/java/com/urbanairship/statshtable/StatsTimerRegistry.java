@@ -19,6 +19,9 @@ public class StatsTimerRegistry extends MetricsRegistry {
      * Get the SHTimerMetric if one already exists for the given scope&name, else create one.
      */
     public SHTimerMetric newSHTimerMetric(String scope, String name) {
+        if(scope == null) {
+            scope = "";
+        }
         MetricName metricName = StatsHTable.newMetricName(scope + scopeSuffix, name);
         SHTimerMetric existingMetric = (SHTimerMetric)allMetrics().get(metricName);
         if(existingMetric != null) {
