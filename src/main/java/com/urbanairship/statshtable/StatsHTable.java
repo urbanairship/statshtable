@@ -52,6 +52,10 @@ import com.yammer.metrics.reporting.JmxReporter;
  * HTables are not thread-safe, so this class is also not thread-safe.
  */
 public class StatsHTable implements HTableInterface {
+    // If an iterator next() call takes less than this long, we'll assume the result was cached locally
+    // and we'll ignore its latency.
+    private static final long IGNORE_ITERATOR_THRESHOLD_NANOS = TimeUnit.MICROSECONDS.toNanos(10);
+    
     private static final Log log = LogFactory.getLog(StatsHTable.class);
 
     public static final int NUM_SLOW_QUERIES = 50; 
@@ -154,10 +158,10 @@ public class StatsHTable implements HTableInterface {
      *             up
      */
     private <T> T timedExecute(List<OpType> opTypes, List<byte[]> keys, Callable<T> callable) throws Exception {
-        long beforeMs = System.currentTimeMillis();
+        long beforeNanos = System.nanoTime();
         T result = callable.call();
-        long durationMs = System.currentTimeMillis() - beforeMs;
-        updateStats(opTypes, keys, durationMs);
+        long durationNanos = System.nanoTime() - beforeNanos;
+        updateStats(opTypes, keys, durationNanos);
         return result; 
     }
 
@@ -167,17 +171,17 @@ public class StatsHTable implements HTableInterface {
      * a key, from which we can figure out the region that it came from.
      */
     private Result timedExecuteIterator(List<OpType> opTypes, Callable<Result> callable) throws Exception {
-        long beforeMs = System.currentTimeMillis();
+        long beforeNanos = System.nanoTime();
         Result result = callable.call();
-        long durationMs = System.currentTimeMillis() - beforeMs;
+        long durationNanos = System.nanoTime() - beforeNanos;
         
         List<byte[]> keys = new ArrayList<byte[]>(1);
-        // If the iterator returned in less than one millisecond, we assume it's reading from a local cache
+        // If the iterator returned very quickly, we assume it's reading from a local cache
         // and not doing an RPC. We don't update the stats in this case because they skew the results
         // and make actual HBase problems harder to find.
-        if(durationMs > 0L) {
+        if(durationNanos > IGNORE_ITERATOR_THRESHOLD_NANOS) {
             keys.add(result.getRow());
-            updateStats(opTypes, keys, durationMs);
+            updateStats(opTypes, keys, durationNanos);
         }
         return result;
     }
@@ -189,33 +193,33 @@ public class StatsHTable implements HTableInterface {
      */
     private Result[] timedExecuteArrayIterator(List<OpType> opTypes, Callable<Result[]> callable) 
             throws Exception {
-        long beforeMs = System.currentTimeMillis();
+        long beforeNanos = System.nanoTime();
         Result[] results = callable.call();
-        long durationMs = System.currentTimeMillis() - beforeMs;
+        long durationNanos = System.nanoTime() - beforeNanos;
         
-        // If the iterator returned in less than one millisecond, we assume it's reading from a local cache
+        // If the iterator returned very quickly, we assume it's reading from a local cache
         // and not doing an RPC. We don't update the stats in this case because they skew the results
         // and make actual HBase problems harder to find.
-        if(durationMs > 0L) {
+        if(durationNanos > IGNORE_ITERATOR_THRESHOLD_NANOS) {
             List<byte[]> keys = new ArrayList<byte[]>(results.length);
             for(int i=0; i<results.length; i++) {
                 keys.add(results[i].getRow());
             }
-            updateStats(opTypes, keys, durationMs);
+            updateStats(opTypes, keys, durationNanos);
         }
         return results;
     }
     
-    private void updateStats(List<OpType> opTypes, List<byte[]> keys, long durationMs) {
+    private void updateStats(List<OpType> opTypes, List<byte[]> keys, long durationNanos) {
         try {
             for (OpType opType : opTypes) {
-                opTypeTimers.newSHTimerMetric(metricsScope, opType.toString()).update(durationMs, TimeUnit.MILLISECONDS);
+                opTypeTimers.newSHTimerMetric(metricsScope, opType.toString()).update(durationNanos, TimeUnit.NANOSECONDS);
             }
 
             Set<String> regionNames = new HashSet<String>();
             Set<String> serverNames = new HashSet<String>();
 
-            slowQueryGauge.maybeUpdate(durationMs);
+            slowQueryGauge.maybeUpdate(durationNanos);
             
             // Make sets of regions and servers that we'll record the latency for
             if(keys != null) {
@@ -230,12 +234,12 @@ public class StatsHTable implements HTableInterface {
             String tableName = new String(normalHTable.getTableName());
             for (String regionName : regionNames) {
                 String metricName = tableName + "|" + regionName;
-                regionTimers.newSHTimerMetric(metricsScope, metricName).update(durationMs, TimeUnit.MILLISECONDS);
+                regionTimers.newSHTimerMetric(metricsScope, metricName).update(durationNanos, TimeUnit.NANOSECONDS);
             }
 
             // Track latencies by region server, there may be slow servers
             for (String serverName : serverNames) {
-                serverTimers.newSHTimerMetric(metricsScope, serverName).update(durationMs, TimeUnit.MILLISECONDS);
+                serverTimers.newSHTimerMetric(metricsScope, serverName).update(durationNanos, TimeUnit.NANOSECONDS);
             }
 
         } catch (Exception e) {
