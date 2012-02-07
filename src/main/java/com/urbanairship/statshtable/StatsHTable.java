@@ -52,25 +52,22 @@ import com.yammer.metrics.reporting.JmxReporter;
  * HTables are not thread-safe, so this class is also not thread-safe.
  */
 public class StatsHTable implements HTableInterface {
+    private static final Log log = LogFactory.getLog(StatsHTable.class);
+
     // If an iterator next() call takes less than this long, we'll assume the result was cached locally
     // and we'll ignore its latency.
     private static final long IGNORE_ITERATOR_THRESHOLD_NANOS = TimeUnit.MICROSECONDS.toNanos(10);
-    
-    private static final Log log = LogFactory.getLog(StatsHTable.class);
-
     public static final int NUM_SLOW_QUERIES = 50; 
-
     private static final ObjectMapper objectMapper = new ObjectMapper();
-    
     private static final Object jmxSetupLock = new Object();
     private static boolean jmxSetupDone = false;
     
     // These contain TimerMetrics for individual regions and servers. These are global singletons.
-    private static StatsTimerRegistry regionTimers = RegionTimers.getInstance();
-    private static StatsTimerRegistry serverTimers = ServerTimers.getInstance();
+    static StatsTimerRegistry regionTimers = RegionTimers.getInstance();
+    static StatsTimerRegistry serverTimers = ServerTimers.getInstance();
     
     // Contains TimerMetrics by operation type (e.g. put, get)
-    private static StatsTimerRegistry opTypeTimers = new StatsTimerRegistry("_opTypes");
+    static StatsTimerRegistry opTypeTimers = new StatsTimerRegistry("_opTypes");
     
     private final HTable normalHTable;
     private final String metricsScope;
@@ -153,9 +150,7 @@ public class StatsHTable implements HTableInterface {
      * @param callable
      * @param keys
      * @return the return value of the callable
-     * @throws Exception
-     *             if and only if the callable throws, the exception will bubble
-     *             up
+     * @throws Exception if and only if the callable throws, the exception will bubble up
      */
     private <T> T timedExecute(List<OpType> opTypes, List<byte[]> keys, Callable<T> callable) throws Exception {
         long beforeNanos = System.nanoTime();
@@ -178,10 +173,16 @@ public class StatsHTable implements HTableInterface {
         List<byte[]> keys = new ArrayList<byte[]>(1);
         // If the iterator returned very quickly, we assume it's reading from a local cache
         // and not doing an RPC. We don't update the stats in this case because they skew the results
-        // and make actual HBase problems harder to find.
+        // and make actual HBase problems harder to find. This is a nasty hack that will often be wrong,
+        // but hopefully it will at least point in the direction of a problem if one exists.
         if(durationNanos > IGNORE_ITERATOR_THRESHOLD_NANOS) {
-            keys.add(result.getRow());
-            updateStats(opTypes, keys, durationNanos);
+            if(result != null) {
+                byte[] row = result.getRow(); 
+                if(row != null) {
+                    keys.add(row);
+                    updateStats(opTypes, keys, durationNanos);
+                }
+            }
         }
         return result;
     }
@@ -203,7 +204,9 @@ public class StatsHTable implements HTableInterface {
         if(durationNanos > IGNORE_ITERATOR_THRESHOLD_NANOS) {
             List<byte[]> keys = new ArrayList<byte[]>(results.length);
             for(int i=0; i<results.length; i++) {
-                keys.add(results[i].getRow());
+                if(results[i] != null && !results[i].isEmpty()) {
+                    keys.add(results[i].getRow());
+                }
             }
             updateStats(opTypes, keys, durationNanos);
         }
@@ -542,10 +545,10 @@ public class StatsHTable implements HTableInterface {
     @Override
     public ResultScanner getScanner(final byte[] family) throws IOException {
         try {
-            return timedExecute(ImmutableList.of(OpType.GETSCANNER), null, new Callable<ResultScanner>() {
+            return timedExecute(ImmutableList.of(OpType.GET_SCANNER), null, new Callable<ResultScanner>() {
                 @Override
                 public ResultScanner call() throws IOException {
-                    return normalHTable.getScanner(family);                    
+                    return new WrappedResultScanner(normalHTable.getScanner(family));                    
                 }
             });
         } catch (IOException e) {
@@ -560,10 +563,10 @@ public class StatsHTable implements HTableInterface {
     @Override
     public ResultScanner getScanner(final byte[] family, final byte[] qualifier) throws IOException {
         try {
-            return timedExecute(ImmutableList.of(OpType.GETSCANNER), null, new Callable<ResultScanner>() {
+            return timedExecute(ImmutableList.of(OpType.GET_SCANNER), null, new Callable<ResultScanner>() {
                 @Override
                 public ResultScanner call() throws IOException {
-                    return normalHTable.getScanner(family, qualifier);                    
+                    return new WrappedResultScanner(normalHTable.getScanner(family, qualifier));                    
                 }
             });
         } catch (IOException e) {
