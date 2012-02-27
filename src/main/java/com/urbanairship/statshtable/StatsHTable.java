@@ -105,8 +105,8 @@ public class StatsHTable implements HTableInterface {
          * gauges if they don't already exist.
          */
         // Get or create these gauges. If we're the first StatsHTable for our metricsScope, will create and register.
-        Metrics.newGauge(newMetricName(metricsScope, "serversByLatency"), new GaugeForScope(serverTimers));
-        Metrics.newGauge(newMetricName(metricsScope, "regionsByLatency"), new GaugeForScope(regionTimers));
+        Metrics.newGauge(newMetricName(metricsScope, "serversByLatency90th"), new GaugeForScope(serverTimers));
+        Metrics.newGauge(newMetricName(metricsScope, "regionsByLatency90th"), new GaugeForScope(regionTimers));
         slowQueryGauge = (SlowQueryGauge)Metrics.newGauge(newMetricName(metricsScope, "slowQueries"), 
                 new SlowQueryGauge(NUM_SLOW_QUERIES));
         
@@ -865,16 +865,16 @@ public class StatsHTable implements HTableInterface {
         
         @Override
         public String value() {
-            Map<String,Double> meanLatencies = new HashMap<String,Double>();
+            Map<String,Double> latencies = new HashMap<String,Double>();
             for(Map.Entry<MetricName,Metric> e: registry.allMetrics().entrySet()) {
                 Metric metric = e.getValue();
                 if(metric instanceof SHTimerMetric) {
                     SHTimerMetric timerMetric = (SHTimerMetric)metric;
-                    meanLatencies.put(e.getKey().getName(), timerMetric.mean());
+                    latencies.put(e.getKey().getName(), timerMetric.percentile(0.9D));
                 }
             }
             try {
-                return objectMapper.writeValueAsString(sortMapReversedByValue(meanLatencies));
+                return objectMapper.writeValueAsString(sortMapReversedByValue(latencies));
             } catch (Exception e) {
                 log.error("JSON encoding problem", e);
                 return "exception, see logs";
