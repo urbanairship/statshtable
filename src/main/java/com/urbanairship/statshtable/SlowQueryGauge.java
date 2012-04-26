@@ -9,18 +9,18 @@ import java.util.Map;
 import java.util.NavigableSet;
 import java.util.TreeSet;
 
+import com.yammer.metrics.core.Gauge;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.codehaus.jackson.map.ObjectMapper;
 
-import com.yammer.metrics.core.GaugeMetric;
 
 /**
  * Gives a JMX gauge that returns stack traces of the slowest N queries as JSON.
  * 
  * Thread safe!
  */
-public class SlowQueryGauge extends GaugeMetric<String> {
+public class SlowQueryGauge extends Gauge<String> {
     private static final Log log = LogFactory.getLog(SlowQueryGauge.class);
     
     NavigableSet<TimedStackTrace> slowQueries = new TreeSet<TimedStackTrace>();
@@ -58,7 +58,6 @@ public class SlowQueryGauge extends GaugeMetric<String> {
     /**
      * Called by JMX to output the worst N stack traces, highest latency first.
      */
-    @Override
     public String value() {
         try {
             Map<StackTraceElement[],Long> jsonMap = new LinkedHashMap<StackTraceElement[],Long>();

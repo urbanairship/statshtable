@@ -34,7 +34,7 @@ import org.junit.Test;
 import com.google.common.collect.ImmutableList;
 import com.yammer.metrics.core.Metric;
 import com.yammer.metrics.core.MetricName;
-import com.yammer.metrics.core.TimerMetric;
+import com.yammer.metrics.core.Timer;
 
 public class StatsHTableTest {
     private static final HBaseTestingUtility TEST_UTIL = new HBaseTestingUtility();
@@ -532,7 +532,7 @@ public class StatsHTableTest {
             if(metric == null) {
                 Assert.fail("Metric was unexpectedly absent for " + metricName);
             }
-            TimerMetric timerMetric = (TimerMetric)metric;
+            SHTimerMetric timerMetric = (SHTimerMetric)metric;
             if(timerMetric.count() < 1) {
                 Assert.fail("Metric should have received an update but had count of 0 for " + metricName);
             }

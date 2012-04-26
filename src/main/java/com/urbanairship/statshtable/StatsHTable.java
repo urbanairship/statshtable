@@ -18,6 +18,7 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 
+import com.yammer.metrics.core.Gauge;
 import org.apache.commons.collections.comparators.ReverseComparator;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -41,7 +42,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.SortedSetMultimap;
 import com.google.common.collect.TreeMultimap;
 import com.yammer.metrics.Metrics;
-import com.yammer.metrics.core.GaugeMetric;
 import com.yammer.metrics.core.Metric;
 import com.yammer.metrics.core.MetricName;
 import com.yammer.metrics.reporting.JmxReporter;
@@ -860,7 +860,7 @@ public class StatsHTable implements HTableInterface {
     /**
      * Shared code for the gauges that show regions/servers in descending order of latency.
      */
-    private class GaugeForScope extends GaugeMetric<String> {
+    private class GaugeForScope extends Gauge<String> {
         private final StatsTimerRegistry registry;
         
         public GaugeForScope(StatsTimerRegistry registry) {
@@ -874,7 +874,7 @@ public class StatsHTable implements HTableInterface {
                 Metric metric = e.getValue();
                 if(metric instanceof SHTimerMetric) {
                     SHTimerMetric timerMetric = (SHTimerMetric)metric;
-                    latencies.put(e.getKey().getName(), timerMetric.percentile(0.9D));
+                    latencies.put(e.getKey().getName(), timerMetric.getSnapshot().getValue(0.9D));
                 }
             }
             try {
