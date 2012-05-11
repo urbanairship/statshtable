@@ -8,7 +8,9 @@ Latency and throughput are reported for each regionserver, region, and operation
 ### HBase version support
 StatsHTable currently supports only HBase 0.90.x. Patches adding support for later HBase versions would be welcome.
 
-### Examples
+### How to use it
 
-See the test cases in the source tree.
+Create a StatsHTablePool object and use it like you would use a normal HTablePool. Alternately, use a StatsHTable instead of an HTable.
+
+See the test cases in the source tree for examples.
 
