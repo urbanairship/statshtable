@@ -1,3 +1,7 @@
+/*
+Copyright 2012 Urban Airship and Contributors
+*/
+
 package com.urbanairship.statshtable;
 
 import org.apache.hadoop.conf.Configuration;
