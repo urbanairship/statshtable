@@ -1,7 +1,9 @@
 ## StatsHTable
 
 ### Basics
-StatsHTable is a tool for measuring the performance of HBase clusters in real time. It works by wrapping your HTable object with a StatsHTable object which measures the latency of every call to the underlying HTable. 
+StatsHTable is a tool for measuring the performance of HBase clusters in real time. It works by wrapping your HTable object with a StatsHTable object which measures the latency of every call to the underlying HTable.
+
+The main idea is that you can easily see over JMX how your HBase cluster is performing with only minor changes to your app. The regionservers are not touched. 
 
 Latency and throughput are reported for each regionserver, region, and operation type (put, get, etc.). The latency data are stored and processed using the Yammer metrics library. This information can help isolate performance problems.
 
