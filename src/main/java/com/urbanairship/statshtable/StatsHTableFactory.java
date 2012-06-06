@@ -4,6 +4,8 @@ Copyright 2012 Urban Airship and Contributors
 
 package com.urbanairship.statshtable;
 
+import java.io.IOException;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.HTableFactory;
@@ -35,7 +37,7 @@ public class StatsHTableFactory implements HTableInterfaceFactory {
     }
 
     @Override
-    public void releaseHTableInterface(HTableInterface table) {
+    public void releaseHTableInterface(HTableInterface table) throws IOException {
         // Wraps the underlying normal htable factory. If the incoming table is a StatsHTable, unwrap it.
         HTableInterface hTableToRelease;
         if(table instanceof StatsHTable) {
