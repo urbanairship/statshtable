@@ -4,7 +4,6 @@ Copyright 2012 Urban Airship and Contributors
 
 package com.urbanairship.statshtable;
 
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import com.yammer.metrics.Metrics;
@@ -22,7 +21,7 @@ public class SHTimerMetric implements Metered, Stoppable, Sampling, Summarizable
     private long lastUpdateMillis = 0L;
     Timer t;
 
-    SHTimerMetric(ScheduledExecutorService tickThread, TimeUnit durationUnit, TimeUnit rateUnit) {
+    SHTimerMetric(TimeUnit durationUnit, TimeUnit rateUnit) {
         t = Metrics.newTimer(this.getClass(),"Timer",durationUnit, rateUnit);
     }
 
