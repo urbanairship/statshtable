@@ -58,6 +58,7 @@ public class SlowQueryGauge extends Gauge<String> {
     /**
      * Called by JMX to output the worst N stack traces, highest latency first.
      */
+    @Override
     public String value() {
         try {
             Map<StackTraceElement[],Long> jsonMap = new LinkedHashMap<StackTraceElement[],Long>();
