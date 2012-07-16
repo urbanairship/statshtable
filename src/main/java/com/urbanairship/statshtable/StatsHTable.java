@@ -125,6 +125,7 @@ public class StatsHTable implements HTableInterface {
                     new JmxReporter(regionTimers).start();
                     new JmxReporter(serverTimers).start();
                     new JmxReporter(opTypeTimers).start();
+                    jmxSetupDone = true;
                 }
             }
         }
