@@ -13,7 +13,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.HTableInterface;
@@ -26,7 +25,6 @@ import org.apache.hadoop.hbase.client.RowLock;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.junit.After;
-import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -34,32 +32,23 @@ import org.junit.Test;
 import com.google.common.collect.ImmutableList;
 import com.yammer.metrics.core.Metric;
 import com.yammer.metrics.core.MetricName;
-import com.yammer.metrics.core.TimerMetric;
 
-public class StatsHTableTest {
-    private static final HBaseTestingUtility TEST_UTIL = new HBaseTestingUtility();
-    
+public class StatsHTableTest extends NeedsEmbeddedCluster {
     private static final String scope = "stats_test";
-    private static final byte[] table = "testtable".getBytes();
+    private static final byte[] table =  StatsHTableTest.class.getName().getBytes();
     private static final byte[] cf = "testcf".getBytes(); 
- 
+
     private static HTablePool statsHTablePool = null;
     
     private Set<HTableInterface> tablesToReturn = new HashSet<HTableInterface>();
     
     @BeforeClass
     public static final void init() throws Exception {
-        TEST_UTIL.startMiniCluster();
-        TEST_UTIL.createTable(table, cf).close();
-
+        createTable(table, cf);
         statsHTablePool = new StatsHTablePool(TEST_UTIL.getConfiguration(), true, scope);
    }
     
-    @AfterClass
-    public static final void afterClass() throws Exception {
-        TEST_UTIL.shutdownMiniCluster();
-    }
-    
+    @SuppressWarnings("deprecation")
     @After
     public void afterEach() throws Exception {
         // Return all htables to the pool after each test
@@ -72,16 +61,6 @@ public class StatsHTableTest {
         TEST_UTIL.deleteTable(table);
         TEST_UTIL.createTable(table, cf).close();
         statsHTablePool = new StatsHTablePool(TEST_UTIL.getConfiguration(),true, scope);
-
-        // The following deletion code doesn't work. It seems that simply deleting rows 
-        // between tests is not sufficient. Scanners sometimes see deleted rows. (!?!?) (on 0.90.4)
-//        // Delete all rows in the table to leave a pristine state for the next test
-//        HTableInterface hTable = statsHTablePool.getTable(table);
-//        for(Result result: hTable.getScanner(new Scan(cf))) {
-//            hTable.delete(new Delete(result.getRow()));
-//        }
-//        Thread.sleep(1);
-//        statsHTablePool.putTable(hTable);
         
         // Clear the set of metrics that track each OpType
         Set<MetricName> metricNames = new HashSet<MetricName>(StatsHTable.opTypeTimers.allMetrics().keySet()); 
@@ -180,6 +159,7 @@ public class StatsHTableTest {
         put.add(cf, row, row);
         hTable.put(put);
         
+        @SuppressWarnings("deprecation")
         Result result = hTable.getRowOrBefore(row, cf);
         
         Assert.assertArrayEquals(row, result.getRow());
@@ -496,7 +476,6 @@ public class StatsHTableTest {
     
     private HTableInterface getHTable() {
         HTableInterface hTable = statsHTablePool.getTable(table);
-        assert hTable instanceof StatsHTable;
         tablesToReturn.add(hTable);
         return hTable;
     }
@@ -532,7 +511,7 @@ public class StatsHTableTest {
             if(metric == null) {
                 Assert.fail("Metric was unexpectedly absent for " + metricName);
             }
-            TimerMetric timerMetric = (TimerMetric)metric;
+            SHTimerMetric timerMetric = (SHTimerMetric)metric;
             if(timerMetric.count() < 1) {
                 Assert.fail("Metric should have received an update but had count of 0 for " + metricName);
             }
