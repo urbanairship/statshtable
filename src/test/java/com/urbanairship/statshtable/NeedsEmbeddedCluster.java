@@ -15,10 +15,6 @@ import org.junit.BeforeClass;
 public class NeedsEmbeddedCluster {
     private static final Logger log = LogManager.getLogger(NeedsEmbeddedCluster.class);
     protected static final HBaseTestingUtility TEST_UTIL = new HBaseTestingUtility();
-    
-//    protected static final String scope = "stats_test";
-//    protected static final byte[] table = "testtable".getBytes();
-//    protected static final byte[] cf = "testcf".getBytes(); 
 
     private static boolean inited = false;
     
