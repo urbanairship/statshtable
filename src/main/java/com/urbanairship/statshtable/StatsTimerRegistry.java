@@ -31,7 +31,7 @@ public class StatsTimerRegistry extends MetricsRegistry {
         if(existingMetric != null) {
             return existingMetric;
         }
-        SHTimerMetric newMetric = new SHTimerMetric(newMeterTickThreadPool(), TimeUnit.MILLISECONDS, 
+        SHTimerMetric newMetric = new SHTimerMetric(TimeUnit.MILLISECONDS,
                 TimeUnit.SECONDS);
         existingMetric = getOrAdd(metricName, newMetric);
         if(existingMetric != null) {
