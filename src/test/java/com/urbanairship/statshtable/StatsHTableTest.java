@@ -519,9 +519,14 @@ public class StatsHTableTest extends NeedsEmbeddedCluster {
 
         // Assert that no other metrics got updated other than the ones specified
         for(MetricName metricName: updatedMetrics.keySet()) {
+            // Skip metrics in other scopes from other tests
+            if(!metricName.getScope().equals(scope)) {
+                continue;
+            }
+            
             if(!expectedMetrics.contains(metricName)) {
                 Assert.fail("Some other metric was unexpectedly updated. Expected one of: " + 
-                        opTypes + " but saw " + metricName);
+                        expectedMetrics + " but saw " + metricName);
             }
         }
     }
