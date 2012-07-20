@@ -1,5 +1,7 @@
 ## StatsHTable
 
+![statshtable jconsole screencap](https://github.com/urbanairship/statshtable/raw/master/statshtable_screenshot_resized.png)
+
 ### Basics
 StatsHTable is a tool for measuring the performance of HBase clusters in real time. It works by wrapping your HTable object with a StatsHTable object which measures the latency of every call to the underlying HTable.
 
