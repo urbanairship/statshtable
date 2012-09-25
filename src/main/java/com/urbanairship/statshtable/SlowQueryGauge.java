@@ -4,15 +4,15 @@ Copyright 2012 Urban Airship and Contributors
 
 package com.urbanairship.statshtable;
 
+import com.yammer.metrics.core.GaugeMetric;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.codehaus.jackson.map.ObjectMapper;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.NavigableSet;
 import java.util.TreeSet;
-
-import com.yammer.metrics.core.Gauge;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-import org.codehaus.jackson.map.ObjectMapper;
 
 
 /**
@@ -20,7 +20,7 @@ import org.codehaus.jackson.map.ObjectMapper;
  * 
  * Thread safe!
  */
-public class SlowQueryGauge extends Gauge<String> {
+public class SlowQueryGauge extends GaugeMetric<String> {
     private static final Log log = LogFactory.getLog(SlowQueryGauge.class);
     
     NavigableSet<TimedStackTrace> slowQueries = new TreeSet<TimedStackTrace>();
