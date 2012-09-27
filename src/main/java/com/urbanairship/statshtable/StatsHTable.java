@@ -4,51 +4,27 @@ Copyright 2012 Urban Airship and Contributors
 
 package com.urbanairship.statshtable;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.Callable;
-import java.util.concurrent.TimeUnit;
-
-import com.yammer.metrics.core.Gauge;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.SortedSetMultimap;
+import com.google.common.collect.TreeMultimap;
+import com.yammer.metrics.Metrics;
+import com.yammer.metrics.core.GaugeMetric;
+import com.yammer.metrics.core.Metric;
+import com.yammer.metrics.core.MetricName;
+import com.yammer.metrics.reporting.JmxReporter;
 import org.apache.commons.collections.comparators.ReverseComparator;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.HTableDescriptor;
-import org.apache.hadoop.hbase.client.Append;
-import org.apache.hadoop.hbase.client.Delete;
-import org.apache.hadoop.hbase.client.Get;
-import org.apache.hadoop.hbase.client.HTable;
-import org.apache.hadoop.hbase.client.HTableInterface;
-import org.apache.hadoop.hbase.client.Increment;
-import org.apache.hadoop.hbase.client.Put;
-import org.apache.hadoop.hbase.client.Result;
-import org.apache.hadoop.hbase.client.ResultScanner;
-import org.apache.hadoop.hbase.client.Row;
-import org.apache.hadoop.hbase.client.RowLock;
-import org.apache.hadoop.hbase.client.RowMutations;
-import org.apache.hadoop.hbase.client.Scan;
-import org.apache.hadoop.hbase.client.coprocessor.Batch;
-import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
+import org.apache.hadoop.hbase.client.*;
 import org.codehaus.jackson.map.ObjectMapper;
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.SortedSetMultimap;
-import com.google.common.collect.TreeMultimap;
-import com.yammer.metrics.Metrics;
-import com.yammer.metrics.core.Metric;
-import com.yammer.metrics.core.MetricName;
-import com.yammer.metrics.reporting.JmxReporter;
+import java.io.IOException;
+import java.util.*;
+import java.util.concurrent.Callable;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Wraps an HTable and exposes latency metrics by region/server/operation.
@@ -65,7 +41,7 @@ public class StatsHTable implements HTableInterface {
     // If an iterator next() call takes less than this long, we'll assume the result was cached locally
     // and we'll ignore its latency.
     private static final long IGNORE_ITERATOR_THRESHOLD_NANOS = TimeUnit.MICROSECONDS.toNanos(10);
-    public static final int NUM_SLOW_QUERIES = 50; 
+    public static final int NUM_SLOW_QUERIES = 100;
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final Object jmxSetupLock = new Object();
     private static boolean jmxSetupDone = false;
@@ -153,9 +129,6 @@ public class StatsHTable implements HTableInterface {
      * The latency will also be recorded for every server touched by an
      * operation, which lets us identify slow servers.
      * 
-     * @param timerLabels
-     *            the latency of the callable will be used to update each of the
-     *            timers
      * @param callable
      * @param keys
      * @return the return value of the callable
@@ -257,9 +230,9 @@ public class StatsHTable implements HTableInterface {
                 for (byte[] key : keys) {
                     // 'False' as second parameter to getRegionLocation allows use of cached
                     // information when getting region locations
-                    HRegionLocation hRegionLocation = normalHTable.getRegionLocation(key, false);
+                    HRegionLocation hRegionLocation = normalHTable.getRegionLocation(key);
                     regionNames.add(hRegionLocation.getRegionInfo().getEncodedName());
-                    serverNames.add(hRegionLocation.getHostname());
+                    serverNames.add(hRegionLocation.getServerAddress().getHostname());
                 }
             }
 
@@ -330,7 +303,7 @@ public class StatsHTable implements HTableInterface {
     }
 
     @Override
-    public void batch(final List<? extends Row> actions, final Object[] results)
+    public void batch(final List<Row> actions, final Object[] results)
             throws IOException, InterruptedException {
         try {
             List<byte[]> keys = new ArrayList<byte[]>(actions.size());
@@ -357,7 +330,7 @@ public class StatsHTable implements HTableInterface {
     }
 
     @Override
-    public Object[] batch(final List<? extends Row> actions)
+    public Object[] batch(final List<Row> actions)
             throws IOException, InterruptedException {
         try {
             List<byte[]> keys = new ArrayList<byte[]>(actions.size());
@@ -860,85 +833,7 @@ public class StatsHTable implements HTableInterface {
         
     }
 
-    @Override
-    public Result append(final Append append) throws IOException {
-        try {
-            return timedExecute(OpType.APPEND, append.getRow(), new Callable<Result>() {
-                @Override
-                public Result call() throws IOException {
-                    return normalHTable.append(append);
-                }
-            });
-        } catch (IOException e) {
-            throw e;
-        } catch (Exception e) {
-            final String errMsg = "Unexpected exception in stats wrapper for append";
-            log.error(errMsg, e);
-            throw new RuntimeException(errMsg, e);
-        }
-    }
 
-    @Override
-    public void mutateRow(final RowMutations mutations) throws IOException {
-        try {
-            timedExecute(OpType.MUTATEROW, mutations.getRow(), new Callable<Object>() {
-                @Override
-                public Object call() throws IOException {
-                    normalHTable.mutateRow(mutations);
-                    return null;
-                }
-            });
-        } catch (IOException e) {
-            throw e;
-        } catch (Exception e) {
-            final String errMsg = "Unexpected exception in stats wrapper for mutateRow";
-            log.error(errMsg, e);
-            throw new RuntimeException(errMsg, e);
-        }
-    }
-
-    @Override
-    public <T extends CoprocessorProtocol, R> Map<byte[],R> coprocessorExec(
-            final Class<T> protocol, final byte[] startKey, final byte[] endKey,
-            final Batch.Call<T,R> callable) throws IOException, Throwable {
-        try {
-            return timedExecuteMapResult(OpType.EXEC, new Callable<Map<byte[],R>>() {
-                @Override
-                public Map<byte[], R> call() throws Exception {
-                    try {
-                        return normalHTable.coprocessorExec(protocol, startKey, endKey, callable);
-                    } catch (Throwable t) {
-                        throw new IOException(t);
-                    }
-                }
-            });
-        } catch (IOException e) {
-            throw e;
-        } catch (Exception e) {
-            final String errMsg = "Unexpected exception in stats wrapper for coprocessorExec";
-            log.error(errMsg, e);
-            throw new RuntimeException(errMsg, e);
-        }
-    }
-
-    @Override
-    public <T extends CoprocessorProtocol, R> void coprocessorExec(
-            Class<T> protocol, byte[] startKey, byte[] endKey, Batch.Call<T,R> callable,
-            Batch.Callback<R> callback) throws IOException, Throwable {
-        // TODO: We could time the Exec but it would be more interesting for the callback
-        // to provide latency information. There is one callback for each result returned
-        // from the coprocessor endpoint invocation on a given regionserver. Should the
-        // callback be wrapped?
-        normalHTable.coprocessorExec(protocol, startKey, endKey, callable, callback);
-    }
-
-    @Override
-    public <T extends CoprocessorProtocol> T coprocessorProxy(Class<T> protocol,
-            byte[] row) {
-        // coprocessorProxy returns a dynamic RPC proxy through which the client can then
-        // perform remote coprocessor endpoint method invocations.
-        return normalHTable.coprocessorProxy(protocol, row);
-    }
 
     /**
      * Get the normal HTable instance that underlies this StatsHTable.
@@ -968,7 +863,7 @@ public class StatsHTable implements HTableInterface {
     /**
      * Shared code for the gauges that show regions/servers in descending order of latency.
      */
-    private class GaugeForScope extends Gauge<String> {
+    private class GaugeForScope extends GaugeMetric<String> {
         private final StatsTimerRegistry registry;
         
         public GaugeForScope(StatsTimerRegistry registry) {
@@ -982,7 +877,7 @@ public class StatsHTable implements HTableInterface {
                 Metric metric = e.getValue();
                 if(metric instanceof SHTimerMetric) {
                     SHTimerMetric timerMetric = (SHTimerMetric)metric;
-                    latencies.put(e.getKey().getName(), timerMetric.getSnapshot().getValue(0.9D));
+                    latencies.put(e.getKey().getName(), timerMetric.getValue(0.9D));
                 }
             }
             try {
@@ -996,6 +891,10 @@ public class StatsHTable implements HTableInterface {
     
     public static final MetricName newMetricName(String scope, String name) {
         return new MetricName("com.urbanairship.statshtable", "StatsHTable", name, scope);
+    }
+
+    public void setAutoFlush(boolean autoFlush){
+        normalHTable.setAutoFlush(autoFlush);
     }
 }
 

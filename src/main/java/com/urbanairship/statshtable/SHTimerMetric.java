@@ -4,11 +4,10 @@ Copyright 2012 Urban Airship and Contributors
 
 package com.urbanairship.statshtable;
 
-import java.util.concurrent.TimeUnit;
-
 import com.yammer.metrics.Metrics;
 import com.yammer.metrics.core.*;
-import com.yammer.metrics.stats.Snapshot;
+
+import java.util.concurrent.TimeUnit;
 
 /**
  * A Timer with some extra features:
@@ -16,18 +15,23 @@ import com.yammer.metrics.stats.Snapshot;
  *    updated recently.
  *  - it knows its JMX ObjectName (for easy removal)
  */
-public class SHTimerMetric implements Metered, Stoppable, Sampling, Summarizable  {
+public class SHTimerMetric implements Metered, Stoppable {
 
     private long lastUpdateMillis = 0L;
-    Timer t;
+    TimerMetric t;
+    HistogramMetric h;
 
     SHTimerMetric(TimeUnit durationUnit, TimeUnit rateUnit) {
         t = Metrics.newTimer(this.getClass(),"Timer",durationUnit, rateUnit);
+        h = Metrics.newHistogram(this.getClass(), "lag");
     }
 
     public void update(long duration, TimeUnit timeUnit) {
         lastUpdateMillis = System.currentTimeMillis();
         t.update(duration, timeUnit);
+        if(timeUnit != TimeUnit.MILLISECONDS){
+            h.update(TimeUnit.MILLISECONDS.convert(duration,timeUnit));
+        }
     }
 
     /**
@@ -73,13 +77,9 @@ public class SHTimerMetric implements Metered, Stoppable, Sampling, Summarizable
     }
 
     @Override
-    public <T> void processWith(MetricProcessor<T> processor, MetricName name, T context) throws Exception {
+    public <T> void processWith(MetricsProcessor<T> processor, MetricName name, T context) throws Exception {
         t.processWith(processor, name, context);
-    }
-
-    @Override
-    public Snapshot getSnapshot() {
-        return t.getSnapshot();
+        h.processWith(processor, name, context);
     }
 
     @Override
@@ -87,28 +87,7 @@ public class SHTimerMetric implements Metered, Stoppable, Sampling, Summarizable
         t.stop();
     }
 
-    @Override
-    public double max() {
-        return t.max();
-    }
-
-    @Override
-    public double min() {
-        return t.min();
-    }
-
-    @Override
-    public double mean() {
-        return t.mean();
-    }
-
-    @Override
-    public double stdDev() {
-        return t.stdDev();
-    }
-
-    @Override
-    public double sum() {
-        return t.sum();
+    public Double getValue(double v) {
+        return h.percentile(v);
     }
 }
