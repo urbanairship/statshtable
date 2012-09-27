@@ -4,15 +4,13 @@ Copyright 2012 Urban Airship and Contributors
 
 package com.urbanairship.statshtable;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.NavigableSet;
-import java.util.TreeSet;
-
 import com.yammer.metrics.core.Gauge;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.codehaus.jackson.map.ObjectMapper;
+
+import java.io.StringWriter;
+import java.util.*;
 
 
 /**
@@ -20,7 +18,7 @@ import org.codehaus.jackson.map.ObjectMapper;
  * 
  * Thread safe!
  */
-public class SlowQueryGauge extends Gauge<String> {
+public class SlowQueryGauge extends Gauge<List<String>> {
     private static final Log log = LogFactory.getLog(SlowQueryGauge.class);
     
     NavigableSet<TimedStackTrace> slowQueries = new TreeSet<TimedStackTrace>();
@@ -48,7 +46,8 @@ public class SlowQueryGauge extends Gauge<String> {
         }
         
         if(shouldSave) {
-            slowQueries.add(new TimedStackTrace(Thread.currentThread().getStackTrace(), latencyNanos));
+            StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
+            slowQueries.add(new TimedStackTrace(stackTrace, latencyNanos));
             while(slowQueries.size() > howMany) {
                 slowQueries.pollFirst(); // pop the stack trace with the lowest latency
             }
@@ -59,31 +58,45 @@ public class SlowQueryGauge extends Gauge<String> {
      * Called by JMX to output the worst N stack traces, highest latency first.
      */
     @Override
-    public String value() {
+    public List<String> value() {
         try {
-            Map<StackTraceElement[],Long> jsonMap = new LinkedHashMap<StackTraceElement[],Long>();
+            List<String> jsonMap = new LinkedList<String>();
             synchronized (this) {
                 for(TimedStackTrace timedStackTrace: slowQueries.descendingSet()) {
-                    jsonMap.put(timedStackTrace.stackTrace, timedStackTrace.latency);
+                    jsonMap.add(timedStackTrace.latency + ":" + timedStackTrace.stackTrace);
                 }
             }
-            return mapper.writeValueAsString(jsonMap);
+            return jsonMap;
         } catch (Exception e) {
             log.warn("Exception making JSON for slow queries", e);
-            return "exception";
+            return Collections.emptyList();
         }
     }
-    
+
+    private static String printStacktrace(StackTraceElement[] traceElements, int offset) {
+        StackTraceElement[] stackTrace = traceElements;
+        StringWriter s = new StringWriter(1024);
+        int i = 0;
+        for (StackTraceElement traceElement : stackTrace){
+            if(++i < offset){
+                continue;
+            }
+            s.append("\tat " + traceElement).append("\n");
+        }
+        return s.toString();
+    }
+
     /**
      * A struct that stores a record of a stack trace with associated latency. It's Comparable so we 
      * can keep a sorted set of the highest latencies.
      */
     private static class TimedStackTrace implements Comparable<TimedStackTrace> {
-        public final StackTraceElement[] stackTrace;
+        public final String stackTrace;
         public final long latency;
         
         public TimedStackTrace(StackTraceElement[] stackTrace, long latency) {
-            this.stackTrace = stackTrace;
+            //Remove the top n elements, since the method traces will be from the measurement code
+            this.stackTrace = printStacktrace(stackTrace, 6);
             this.latency = latency;
         }
 
