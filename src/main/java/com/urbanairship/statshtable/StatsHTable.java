@@ -41,7 +41,7 @@ public class StatsHTable implements HTableInterface {
     // If an iterator next() call takes less than this long, we'll assume the result was cached locally
     // and we'll ignore its latency.
     private static final long IGNORE_ITERATOR_THRESHOLD_NANOS = TimeUnit.MICROSECONDS.toNanos(10);
-    public static final int NUM_SLOW_QUERIES = 50; 
+    public static final int NUM_SLOW_QUERIES = 100;
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final Object jmxSetupLock = new Object();
     private static boolean jmxSetupDone = false;
@@ -891,6 +891,10 @@ public class StatsHTable implements HTableInterface {
     
     public static final MetricName newMetricName(String scope, String name) {
         return new MetricName("com.urbanairship.statshtable", "StatsHTable", name, scope);
+    }
+
+    public void setAutoFlush(boolean autoFlush){
+        normalHTable.setAutoFlush(autoFlush);
     }
 }
 
