@@ -5,7 +5,7 @@
 
     <groupId>com.urbanairship</groupId>
     <artifactId>statshtable-cdh3</artifactId>
-    <version>1.3.2-SNAPSHOT</version>
+    <version>1.3.1</version>
 
     <name>statshtable</name>
     <url>http://urbanairship.com</url>
