@@ -24,4 +24,8 @@ public class StatsHTablePool extends HTablePool {
     public StatsHTablePool(Configuration config, boolean useStats, String metricsScope) {
         super(config, Integer.MAX_VALUE, new StatsHTableFactory(useStats, metricsScope));
     }
+
+    public StatsHTablePool(Configuration config, int maxSize, boolean useStats, String metricsScope) {
+        super(config, maxSize, new StatsHTableFactory(useStats, metricsScope));
+    }
 }
