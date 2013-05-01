@@ -5,7 +5,7 @@
 
   <groupId>com.urbanairship</groupId>
   <artifactId>statshtable</artifactId>
-  <version>1.3.1</version>
+  <version>1.3.2</version>
 
   <name>statshtable</name>
   <url>http://urbanairship.com</url>
@@ -40,15 +40,37 @@
       </plugin>
 
       <plugin>
-        <artifactId>maven-assembly-plugin</artifactId>
-        <version>2.2-beta-5</version>
-        <configuration>
-          <descriptors>
-            <descriptor>src/assembly/assembly.xml</descriptor>
-          </descriptors>
-        </configuration>
+          <artifactId>maven-assembly-plugin</artifactId>
+          <version>2.2-beta-5</version>
+          <configuration>
+              <descriptors>
+                  <descriptor>src/assembly/assembly.xml</descriptor>
+              </descriptors>
+          </configuration>
       </plugin>
 
+      <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-shade-plugin</artifactId>
+          <version>1.4</version>
+          <executions>
+              <execution>
+                  <configuration>
+                      <shadedArtifactAttached>true</shadedArtifactAttached>
+                      <relocations>
+                          <relocation>
+                              <pattern>com.yammer.metrics</pattern>
+                              <shadedPattern>com.urbanairship.statshtable.thirdparty.com</shadedPattern>
+                          </relocation>
+                      </relocations>
+                  </configuration>
+                  <phase>package</phase>
+                  <goals>
+                      <goal>shade</goal>
+                  </goals>
+              </execution>
+          </executions>
+      </plugin>
     </plugins>
   </build>
   
@@ -57,16 +79,19 @@
       <groupId>log4j</groupId>
       <artifactId>log4j</artifactId>
       <version>1.2.16</version>
+       <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>commons-configuration</groupId>
       <artifactId>commons-configuration</artifactId>
       <version>1.6</version>
+      <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>commons-io</groupId>
       <artifactId>commons-io</artifactId>
       <version>2.1</version>
+      <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>com.yammer.metrics</groupId>
@@ -77,32 +102,38 @@
       <groupId>org.apache.hadoop</groupId>
       <artifactId>hadoop-client</artifactId>
       <version>1.0.3</version>
+      <scope>provided</scope>
     </dependency> 
     <dependency>
       <groupId>org.apache.hbase</groupId>
       <artifactId>hbase</artifactId>
       <version>0.94.0</version>
+      <scope>provided</scope>
     </dependency>
    <dependency>
       <groupId>joda-time</groupId>
       <artifactId>joda-time</artifactId>
       <version>1.6.2</version>
+      <scope>provided</scope>
     </dependency>
     <!-- We use Jackson 1.5.5 to match HBase 0.94 -->
     <dependency>
       <groupId>org.codehaus.jackson</groupId>
       <artifactId>jackson-mapper-asl</artifactId>
       <version>1.5.5</version>
+      <scope>provided</scope>
     </dependency>
      <dependency>
       <groupId>org.codehaus.jackson</groupId>
       <artifactId>jackson-core-asl</artifactId>
       <version>1.5.5</version>
+      <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>com.google.guava</groupId>
       <artifactId>guava</artifactId>
       <version>12.0</version>
+      <scope>provided</scope>
     </dependency>
 
     <!-- After updating yammer metrics to 2.0.0-BETA18, this was necessary to keep SLF4j from crashing the tests -->
