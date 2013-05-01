@@ -7,6 +7,7 @@ package com.urbanairship.statshtable;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.client.HTablePool;
+import org.apache.hadoop.hbase.util.PoolMap;
 
 /**
  * An HTablePool whose HTables will be wrapped for stats gathering.
@@ -23,6 +24,11 @@ public class StatsHTablePool extends HTablePool {
     
     public StatsHTablePool(Configuration config, boolean useStats, String metricsScope) {
         super(config, Integer.MAX_VALUE, new StatsHTableFactory(useStats, metricsScope));
+    }
+
+    public StatsHTablePool(Configuration config, int maxSize, boolean useStats, String metricsScope,
+                           PoolMap.PoolType poolType) {
+        super(config, maxSize, new StatsHTableFactory(useStats, metricsScope), poolType);
     }
 
     public StatsHTablePool(Configuration config, int maxSize, boolean useStats, String metricsScope) {

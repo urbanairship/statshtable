@@ -997,5 +997,21 @@ public class StatsHTable implements HTableInterface {
     public static final MetricName newMetricName(String scope, String name) {
         return new MetricName("com.urbanairship.statshtable", "StatsHTable", name, scope);
     }
+
+    public void setAutoFlush(boolean autoFlush) {
+        normalHTable.setAutoFlush(autoFlush);
+    }
+
+    public void setAutoFlush(boolean autoFlush, boolean clearBufferOnFail) {
+        normalHTable.setAutoFlush(autoFlush, clearBufferOnFail);
+    }
+
+    public long getWriteBufferSize() {
+        return normalHTable.getWriteBufferSize();
+    }
+
+    public void setWriteBufferSize(long writeBufferSize) throws IOException {
+        normalHTable.setWriteBufferSize(writeBufferSize);
+    }
 }
 
