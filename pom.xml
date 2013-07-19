@@ -11,6 +11,8 @@
   <url>http://urbanairship.com</url>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <hadoop.version>1.0.3</hadoop.version>
+    <hbase.version>0.94.0</hbase.version>
   </properties>
 
   <build>
@@ -101,13 +103,13 @@
     <dependency>
       <groupId>org.apache.hadoop</groupId>
       <artifactId>hadoop-client</artifactId>
-      <version>1.0.3</version>
+      <version>${hadoop.version}</version>
       <scope>provided</scope>
     </dependency> 
     <dependency>
       <groupId>org.apache.hbase</groupId>
       <artifactId>hbase</artifactId>
-      <version>0.94.0</version>
+      <version>${hbase.version}</version>
       <scope>provided</scope>
     </dependency>
    <dependency>
@@ -148,18 +150,18 @@
     <dependency>
       <groupId>org.apache.hbase</groupId>
       <artifactId>hbase</artifactId>
-      <version>0.94.0</version>
+      <version>${hbase.version}</version>
       <scope>test</scope>
       <classifier>tests</classifier>
     </dependency>
-   <!-- Needed for HBase minicluster testing, for MiniDFSCluster -->
-   <dependency>
+    <!-- Needed for HBase minicluster testing, for MiniDFSCluster -->
+    <dependency>
       <groupId>org.apache.hadoop</groupId>
       <artifactId>hadoop-minicluster</artifactId>
-      <version>1.0.3</version>
+      <version>${hadoop.version}</version>
       <scope>test</scope>
     </dependency> 
-     <dependency>
+    <dependency>
       <groupId>junit</groupId>
       <artifactId>junit</artifactId>
       <version>4.10</version>
